@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Link } from "react-router-dom";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Bus, Plus, MapPin, Clock } from "lucide-react";
@@ -19,6 +20,7 @@ interface BusData {
   gps_latitude: number | null;
   gps_longitude: number | null;
   last_location_update: string | null;
+  preset_id?: string | null;
 }
 
 const FleetManagement = () => {
@@ -28,9 +30,12 @@ const FleetManagement = () => {
   const [busNumber, setBusNumber] = useState("");
   const [routeName, setRouteName] = useState("");
   const [status, setStatus] = useState<"active" | "maintenance" | "offline">("active");
+  const [presets, setPresets] = useState<Array<{ id: string; name: string }>>([]);
+  const [selectedPreset, setSelectedPreset] = useState<string>("");
 
   useEffect(() => {
     fetchBuses();
+    fetchPresets();
 
     const channel = supabase
       .channel('fleet-buses')
@@ -61,6 +66,11 @@ const FleetManagement = () => {
     }
   };
 
+  const fetchPresets = async () => {
+    const { data } = await supabase.from("display_presets").select("id,name").order("created_at", { ascending: false });
+    setPresets((data as any) || []);
+  };
+
   const handleAddBus = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -68,7 +78,7 @@ const FleetManagement = () => {
       const { error } = await supabase
         .from('buses')
         .insert([
-          { bus_number: busNumber, route_name: routeName, status }
+          { bus_number: busNumber, route_name: routeName, status, preset_id: selectedPreset || null }
         ]);
 
       if (error) throw error;
@@ -78,6 +88,7 @@ const FleetManagement = () => {
       setBusNumber("");
       setRouteName("");
       setStatus("active");
+      setSelectedPreset("");
     } catch (error: any) {
       toast.error(error.message || "Failed to add bus");
     }
@@ -154,6 +165,19 @@ const FleetManagement = () => {
                     </SelectContent>
                   </Select>
                 </div>
+                <div className="space-y-2">
+                  <Label>Assign Preset (optional)</Label>
+                  <Select value={selectedPreset} onValueChange={(v) => setSelectedPreset(v)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select preset" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {presets.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
                 <Button type="submit" className="w-full">
                   Add Bus
                 </Button>
@@ -224,12 +248,12 @@ const FleetManagement = () => {
                     </span>
                   </div>
                   <div className="pt-2 flex gap-2">
-                    <Button variant="outline" size="sm" className="flex-1">
-                      View Details
+                    <Button variant="outline" size="sm" className="flex-1" onClick={() => navigator.clipboard.writeText(`${window.location.origin}/display?deviceId=${bus.bus_number}${bus.preset_id ? `&presetId=${bus.preset_id}` : ''}&showRoute=1&showTrail=1`)}>
+                      Copy Display Link
                     </Button>
-                    <Button variant="outline" size="sm" className="flex-1">
-                      Track Live
-                    </Button>
+                    <Link to={`/display?${new URLSearchParams({ deviceId: bus.bus_number, ...(bus.preset_id ? { presetId: bus.preset_id } : {}), showRoute: '1', showTrail: '1' }).toString()}`} target="_blank" rel="noreferrer" className="flex-1">
+                      <Button variant="outline" size="sm" className="w-full">Open Display</Button>
+                    </Link>
                   </div>
                 </CardContent>
               </Card>

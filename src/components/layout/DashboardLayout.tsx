@@ -72,6 +72,7 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
     { icon: Calendar, label: "Schedules", path: "/schedules" },
     { icon: Tv, label: "Bus Display", path: "/display" },
     { icon: Tv, label: "GPS Simulator", path: "/simulator" },
+    { icon: Tv, label: "Display Presets", path: "/presets" },
     { icon: Tv, label: "Display Config", path: "/display-config" },
     { icon: Newspaper, label: "News Feeds", path: "/news" },
   ];

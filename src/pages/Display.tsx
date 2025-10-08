@@ -25,6 +25,7 @@ type GpsPayload = {
 
 const Display = () => {
   const searchParams = useMemo(() => new URLSearchParams(window.location.search), []);
+  const presetId = searchParams.get("presetId");
   const initialLat = Number(searchParams.get("lat") || 1.2921);
   const initialLng = Number(searchParams.get("lng") || 36.8219);
   const initialZoom = Number(searchParams.get("zoom") || 14);
@@ -67,6 +68,36 @@ const Display = () => {
       return "";
     }
   }, [isYouTube, videoUrl, ytIdParam]);
+
+  useEffect(() => {
+    // If presetId is provided, fetch preset from Supabase and override local state
+    const loadPreset = async () => {
+      if (!presetId) return;
+      try {
+        const { supabase } = await import("@/integrations/supabase/client");
+        const { data } = await (supabase as any).from("display_presets").select("*").eq("id", presetId).maybeSingle();
+        if (!data) return;
+        if (typeof data.lat === "number" && typeof data.lng === "number") {
+          setPosition({ lat: data.lat, lng: data.lng });
+        }
+        if (data.next_stop) setNextStop(data.next_stop);
+        if (data.destination) setDestination(data.destination);
+        if (data.news) setNews(data.news);
+        if (data.youtube_id) {
+          const url = new URL(window.location.href);
+          url.searchParams.set("yt", data.youtube_id);
+          window.history.replaceState({}, "", url.toString());
+        } else if (data.video_url) {
+          const url = new URL(window.location.href);
+          url.searchParams.set("video", data.video_url);
+          window.history.replaceState({}, "", url.toString());
+        }
+      } catch {
+        // ignore
+      }
+    };
+    loadPreset();
+  }, [presetId]);
 
   useEffect(() => {
     // Socket wiring
