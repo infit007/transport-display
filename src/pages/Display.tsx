@@ -38,7 +38,7 @@ const Display = () => {
   const useOsrm = ["1","true","yes"].includes((searchParams.get("osrm") || "").toLowerCase());
   const ytIdParam = searchParams.get("yt");
   const initialVideo = (
-    searchParams.get("video") || import.meta.env.VITE_PROMO_VIDEO_URL || "https://www.youtube.com/watch?v=u5s8EG_7PW0"
+    searchParams.get("video") || import.meta.env.VITE_PROMO_VIDEO_URL || "https://vjs.zencdn.net/v/oceans.mp4"
   ).trim();
 
   const [news, setNews] = useState<string>(initialNews);
