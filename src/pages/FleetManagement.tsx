@@ -21,6 +21,18 @@ interface BusData {
   gps_longitude: number | null;
   last_location_update: string | null;
   preset_id?: string | null;
+  driver_name?: string | null;
+  conductor_name?: string | null;
+  driver_phone?: string | null;
+  conductor_phone?: string | null;
+  start_point?: string | null;
+  end_point?: string | null;
+  depo?: string | null;
+  category?: string | null;
+  sitting_capacity?: number | null;
+  running_hours?: number | null;
+  bus_type?: string | null;
+  route_id?: string | null;
 }
 
 const FleetManagement = () => {
@@ -32,6 +44,17 @@ const FleetManagement = () => {
   const [status, setStatus] = useState<"active" | "maintenance" | "offline">("active");
   const [presets, setPresets] = useState<Array<{ id: string; name: string }>>([]);
   const [selectedPreset, setSelectedPreset] = useState<string>("");
+  const [driverName, setDriverName] = useState("");
+  const [conductorName, setConductorName] = useState("");
+  const [driverPhone, setDriverPhone] = useState("");
+  const [conductorPhone, setConductorPhone] = useState("");
+  const [startPoint, setStartPoint] = useState("");
+  const [endPoint, setEndPoint] = useState("");
+  const [depo, setDepo] = useState("");
+  const [category, setCategory] = useState<"ev" | "small_bus" | "big_bus">("big_bus");
+  const [sittingCapacity, setSittingCapacity] = useState<number>(48);
+  const [runningHours, setRunningHours] = useState<12 | 15 | 24>(12);
+  const [busType, setBusType] = useState<"volvo" | "ac" | "non_ac">("non_ac");
 
   useEffect(() => {
     fetchBuses();
@@ -78,7 +101,23 @@ const FleetManagement = () => {
       const { error } = await supabase
         .from('buses')
         .insert([
-          { bus_number: busNumber, route_name: routeName, status, preset_id: selectedPreset || null }
+          { 
+            bus_number: busNumber, 
+            route_name: routeName, 
+            status,
+            preset_id: selectedPreset || null,
+            driver_name: driverName,
+            conductor_name: conductorName,
+            driver_phone: driverPhone,
+            conductor_phone: conductorPhone,
+            start_point: startPoint,
+            end_point: endPoint,
+            depo: depo,
+            category: category,
+            sitting_capacity: sittingCapacity,
+            running_hours: runningHours,
+            bus_type: busType
+          }
         ]);
 
       if (error) throw error;
@@ -89,6 +128,17 @@ const FleetManagement = () => {
       setRouteName("");
       setStatus("active");
       setSelectedPreset("");
+      setDriverName("");
+      setConductorName("");
+      setDriverPhone("");
+      setConductorPhone("");
+      setStartPoint("");
+      setEndPoint("");
+      setDepo("");
+      setCategory("big_bus");
+      setSittingCapacity(48);
+      setRunningHours(12);
+      setBusType("non_ac");
     } catch (error: any) {
       toast.error(error.message || "Failed to add bus");
     }
@@ -162,6 +212,110 @@ const FleetManagement = () => {
                       <SelectItem value="active">Active</SelectItem>
                       <SelectItem value="maintenance">Maintenance</SelectItem>
                       <SelectItem value="offline">Offline</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Driver Name</Label>
+                  <Input
+                    placeholder="Driver Name"
+                    value={driverName}
+                    onChange={(e) => setDriverName(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Conductor Name</Label>
+                  <Input
+                    placeholder="Conductor Name"
+                    value={conductorName}
+                    onChange={(e) => setConductorName(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Driver Phone</Label>
+                  <Input
+                    placeholder="Driver Phone"
+                    value={driverPhone}
+                    onChange={(e) => setDriverPhone(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Conductor Phone</Label>
+                  <Input
+                    placeholder="Conductor Phone"
+                    value={conductorPhone}
+                    onChange={(e) => setConductorPhone(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Start Point</Label>
+                  <Input
+                    placeholder="Start Point"
+                    value={startPoint}
+                    onChange={(e) => setStartPoint(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>End Point</Label>
+                  <Input
+                    placeholder="End Point"
+                    value={endPoint}
+                    onChange={(e) => setEndPoint(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Depot</Label>
+                  <Input
+                    placeholder="Depot"
+                    value={depo}
+                    onChange={(e) => setDepo(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Category</Label>
+                  <Select value={category} onValueChange={(value) => setCategory(value as "ev" | "small_bus" | "big_bus")}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ev">EV</SelectItem>
+                      <SelectItem value="small_bus">Small Bus</SelectItem>
+                      <SelectItem value="big_bus">Big Bus</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Sitting Capacity</Label>
+                  <Input
+                    type="number"
+                    placeholder="Sitting Capacity"
+                    value={sittingCapacity}
+                    onChange={(e) => setSittingCapacity(Number(e.target.value))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Running Hours</Label>
+                  <Select value={String(runningHours)} onValueChange={(value) => setRunningHours(Number(value) as 12 | 15 | 24)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="12">12 Hours</SelectItem>
+                      <SelectItem value="15">15 Hours</SelectItem>
+                      <SelectItem value="24">24 Hours</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Bus Type</Label>
+                  <Select value={busType} onValueChange={(value) => setBusType(value as "volvo" | "ac" | "non_ac")}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="volvo">Volvo</SelectItem>
+                      <SelectItem value="ac">AC</SelectItem>
+                      <SelectItem value="non_ac">Non-AC</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -246,6 +400,27 @@ const FleetManagement = () => {
                         ? new Date(bus.last_location_update).toLocaleString()
                         : "No recent update"}
                     </span>
+                  </div>
+                  {bus.driver_name && (
+                    <div className="text-sm text-muted-foreground">
+                      Driver: {bus.driver_name} ({bus.driver_phone})
+                    </div>
+                  )}
+                  {bus.conductor_name && (
+                    <div className="text-sm text-muted-foreground">
+                      Conductor: {bus.conductor_name} ({bus.conductor_phone})
+                    </div>
+                  )}
+                  {bus.start_point && bus.end_point && (
+                    <div className="text-sm text-muted-foreground">
+                      Route: {bus.start_point} → {bus.end_point}
+                    </div>
+                  )}
+                  <div className="flex gap-2 text-xs text-muted-foreground">
+                    {bus.category && <span className="px-2 py-1 bg-blue-100 rounded">{bus.category}</span>}
+                    {bus.bus_type && <span className="px-2 py-1 bg-green-100 rounded">{bus.bus_type}</span>}
+                    {bus.sitting_capacity && <span className="px-2 py-1 bg-purple-100 rounded">{bus.sitting_capacity} seats</span>}
+                    {bus.running_hours && <span className="px-2 py-1 bg-orange-100 rounded">{bus.running_hours}h</span>}
                   </div>
                   <div className="pt-2 flex gap-2">
                     <Button variant="outline" size="sm" className="flex-1" onClick={() => navigator.clipboard.writeText(`${window.location.origin}/display?deviceId=${bus.bus_number}${bus.preset_id ? `&presetId=${bus.preset_id}` : ''}&showRoute=1&showTrail=1`)}>
