@@ -3,7 +3,7 @@ import { io, Socket } from "socket.io-client";
 import KioskLayout from "@/components/layout/KioskLayout";
 import videojs from "video.js";
 import "video.js/dist/video-js.css";
-import { MapContainer, TileLayer, Marker, Popup, Polyline } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 
@@ -26,6 +26,7 @@ type GpsPayload = {
 const Display = () => {
   const searchParams = useMemo(() => new URLSearchParams(window.location.search), []);
   const presetId = searchParams.get("presetId");
+  const deviceId = searchParams.get("deviceId");
   const initialLat = Number(searchParams.get("lat") || 1.2921);
   const initialLng = Number(searchParams.get("lng") || 36.8219);
   const initialZoom = Number(searchParams.get("zoom") || 14);
@@ -34,6 +35,7 @@ const Display = () => {
   const initialDestination = searchParams.get("destination") || "Terminal";
   const showRoute = ["1","true","yes"].includes((searchParams.get("showRoute") || "").toLowerCase());
   const showTrail = ["1","true","yes"].includes((searchParams.get("showTrail") || "").toLowerCase());
+  const useOsrm = ["1","true","yes"].includes((searchParams.get("osrm") || "").toLowerCase());
   const ytIdParam = searchParams.get("yt");
   const initialVideo = (
     searchParams.get("video") || import.meta.env.VITE_PROMO_VIDEO_URL || "https://www.youtube.com/watch?v=u5s8EG_7PW0"
@@ -46,6 +48,9 @@ const Display = () => {
   const [videoUrl] = useState<string>(initialVideo);
   const [destination, setDestination] = useState<string>(initialDestination);
   const [trail, setTrail] = useState<Array<[number, number]>>([[initialLat, initialLng]]);
+  const [plannedRoute, setPlannedRoute] = useState<Array<[number, number]>>([]);
+  const [startPoint, setStartPoint] = useState<string>("");
+  const [endPoint, setEndPoint] = useState<string>("");
   const socketRef = useRef<Socket | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const playerRef = useRef<ReturnType<typeof videojs> | null>(null);
@@ -125,6 +130,78 @@ const Display = () => {
     };
   }, [initialNews]);
 
+  // Subscribe to bus row changes and hydrate from Supabase
+  useEffect(() => {
+    const loadBus = async () => {
+      if (!deviceId) return;
+      const { supabase } = await import("@/integrations/supabase/client");
+      const { data } = await (supabase as any)
+        .from("buses")
+        .select("bus_number, start_point, end_point, route_name, driver_name, conductor_name")
+        .eq("bus_number", deviceId)
+        .maybeSingle();
+      if (data?.start_point) setStartPoint(data.start_point);
+      if (data?.end_point) setEndPoint(data.end_point);
+
+      // live subscription
+      const channel = (supabase as any)
+        .channel("bus-" + deviceId)
+        .on(
+          "postgres_changes",
+          { event: "UPDATE", schema: "public", table: "buses", filter: `bus_number=eq.${deviceId}` },
+          (payload: any) => {
+            const row = payload.new || {};
+            if (row.start_point) setStartPoint(row.start_point);
+            if (row.end_point) setEndPoint(row.end_point);
+          }
+        )
+        .subscribe();
+
+      return () => {
+        (supabase as any).removeChannel?.(channel);
+      };
+    };
+    loadBus();
+  }, [deviceId]);
+
+  // Geocode and route using OSRM when requested
+  useEffect(() => {
+    const computeRoute = async () => {
+      if (!useOsrm) return;
+      const s = startPoint || nextStop || "Dehradun ISBT";
+      const e = endPoint || destination || "New Delhi";
+      try {
+        const geocode = async (q: string) => {
+          const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`;
+          const resp = await fetch(url, { headers: { "Accept-Language": "en" } });
+          const arr = await resp.json();
+          if (!arr?.length) return null;
+          return { lat: Number(arr[0].lat), lng: Number(arr[0].lon) };
+        };
+        const a = await geocode(s);
+        const b = await geocode(e);
+        if (!a || !b) return;
+        const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${a.lng},${a.lat};${b.lng},${b.lat}?overview=full&geometries=geojson`;
+        const osrmResp = await fetch(osrmUrl);
+        const osrm = await osrmResp.json();
+        const coords: Array<[number, number]> = osrm?.routes?.[0]?.geometry?.coordinates?.map((c: [number, number]) => [c[1], c[0]]) || [];
+        setPlannedRoute(coords);
+      } catch {
+        // ignore routing errors
+      }
+    };
+    computeRoute();
+  }, [useOsrm, startPoint, endPoint, nextStop, destination]);
+
+  // Map follow component
+  const ChangeView = ({ center }: { center: [number, number] }) => {
+    const map = useMap();
+    useEffect(() => {
+      map.setView(center, mapZoom, { animate: true });
+    }, [center]);
+    return null;
+  };
+
   useEffect(() => {
     // Video.js player (skip when using YouTube iframe)
     if (isYouTube) return;
@@ -172,17 +249,10 @@ const Display = () => {
           <div className="col-span-1 grid grid-rows-6 gap-3">
             <div className="row-span-4 rounded-xl overflow-hidden border border-border bg-card">
               <MapContainer {...({ center: [position.lat, position.lng] as [number, number], zoom: mapZoom, className: "w-full h-full" } as any)}>
+                <ChangeView center={[position.lat, position.lng]} />
                 <TileLayer {...({ url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", attribution: "&copy; OpenStreetMap contributors" } as any)} />
-                {showRoute && (
-                  <Polyline positions={[
-                    [30.3165, 78.0322],
-                    [30.2817, 78.0090],
-                    [29.9457, 78.1642],
-                    [29.8042, 77.8800],
-                    [29.4724, 77.7085],
-                    [29.0588, 77.0120],
-                    [28.6139, 77.2090],
-                  ]} pathOptions={{ color: "#3b82f6", weight: 5 }} />
+                {(showRoute || useOsrm) && plannedRoute.length > 1 && (
+                  <Polyline positions={plannedRoute} pathOptions={{ color: "#3b82f6", weight: 5 }} />
                 )}
                 {showTrail && trail.length > 1 && (
                   <Polyline positions={trail} pathOptions={{ color: "#22c55e", weight: 4, opacity: 0.8 }} />

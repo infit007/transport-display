@@ -423,10 +423,10 @@ const FleetManagement = () => {
                     {bus.running_hours && <span className="px-2 py-1 bg-orange-100 rounded">{bus.running_hours}h</span>}
                   </div>
                   <div className="pt-2 flex gap-2">
-                    <Button variant="outline" size="sm" className="flex-1" onClick={() => navigator.clipboard.writeText(`${window.location.origin}/display?deviceId=${bus.bus_number}${bus.preset_id ? `&presetId=${bus.preset_id}` : ''}&showRoute=1&showTrail=1`)}>
+                    <Button variant="outline" size="sm" className="flex-1" onClick={() => navigator.clipboard.writeText(`${window.location.origin}/display?deviceId=${bus.bus_number}${bus.preset_id ? `&presetId=${bus.preset_id}` : ''}&showRoute=1&showTrail=1&osrm=1`)}>
                       Copy Display Link
                     </Button>
-                    <Link to={`/display?${new URLSearchParams({ deviceId: bus.bus_number, ...(bus.preset_id ? { presetId: bus.preset_id } : {}), showRoute: '1', showTrail: '1' }).toString()}`} target="_blank" rel="noreferrer" className="flex-1">
+                    <Link to={`/display?${new URLSearchParams({ deviceId: bus.bus_number, ...(bus.preset_id ? { presetId: bus.preset_id } : {}), showRoute: '1', showTrail: '1', osrm: '1' }).toString()}`} target="_blank" rel="noreferrer" className="flex-1">
                       <Button variant="outline" size="sm" className="w-full">Open Display</Button>
                     </Link>
                   </div>
