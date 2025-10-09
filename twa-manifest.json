@@ -13,7 +13,7 @@
   "backgroundColor": "#0B1220",
   "enableNotifications": true,
   "startUrl": "/display",
-  "iconUrl": "https://https//transport-display.vercel.app",
+  "iconUrl": "https://transport-display.vercel.app/icons/icon-512.png",
   "splashScreenFadeOutDuration": 300,
   "signingKey": {
     "path": "C:\\Users\\jsunt\\Downloads\\transport-display-pro-main\\transport-display-pro-main\\android.keystore",
@@ -25,7 +25,14 @@
   "generatorApp": "bubblewrap-cli",
   "webManifestUrl": "https://transport-display.vercel.app/manifest.webmanifest",
   "fallbackType": "customtabs",
-  "features": {},
+  "features": {
+    "playBilling": {
+      "enabled": true
+    },
+    "locationDelegation": {
+      "enabled": true
+    }
+  },
   "alphaDependencies": {
     "enabled": false
   },
