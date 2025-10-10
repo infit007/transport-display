@@ -221,12 +221,12 @@ const FleetManagement = () => {
           <div className="flex items-center gap-3">
             <div className="w-64">
               <Label>Filter by Depot</Label>
-              <Select value={selectedDepotFilter} onValueChange={(v) => setSelectedDepotFilter(v)}>
+              <Select value={selectedDepotFilter || "__ALL__"} onValueChange={(v) => setSelectedDepotFilter(v === "__ALL__" ? "" : v)}>
                 <SelectTrigger>
                   <SelectValue placeholder="All Depots" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All Depots</SelectItem>
+                  <SelectItem value="__ALL__">All Depots</SelectItem>
                   {uttarakhandDepots.map((d) => (
                     <SelectItem key={d} value={d}>{d}</SelectItem>
                   ))}
