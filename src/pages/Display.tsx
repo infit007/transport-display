@@ -37,7 +37,6 @@ const Display = () => {
   const showTrail = ["1","true","yes"].includes((searchParams.get("showTrail") || "").toLowerCase());
   const useOsrm = ["1","true","yes"].includes((searchParams.get("osrm") || "").toLowerCase());
   const ytIdParam = searchParams.get("yt");
-  const noSocket = ["1","true","yes"].includes((searchParams.get("nosocket") || "").toLowerCase());
   // Resolve initial video URL from query/env with safety checks
   const resolveInitialVideo = () => {
     const qp = (searchParams.get("video") || "").trim();
@@ -127,12 +126,22 @@ const Display = () => {
   }, [presetId]);
 
   useEffect(() => {
-    // Fetch media from media library based on deviceId (bus_number)
+    // Fetch media from media library based on deviceId
     const loadMediaFromLibrary = async () => {
       if (!deviceId) return;
       try {
         const { supabase } = await import("@/integrations/supabase/client");
-        const busNumber = deviceId;
+        
+        // Handle different deviceId formats
+        let busNumber = deviceId;
+        if (deviceId === "Bus 001") {
+          busNumber = "UK07PA0001"; // Map to actual bus number
+        } else if (deviceId === "Bus 002") {
+          busNumber = "UK07PA0002";
+        } else if (deviceId === "Bus 003") {
+          busNumber = "UK07PA0003";
+        }
+        
         console.log("Looking for bus with number:", busNumber);
         
         // First get the bus ID from bus_number
@@ -185,28 +194,9 @@ const Display = () => {
   }, [deviceId]);
 
   useEffect(() => {
-    if (noSocket) return;
     // Socket wiring
     const endpoint = import.meta.env.VITE_BACKEND_URL || "http://localhost:4000";
-    // Do NOT force websocket; allow polling fallback so proxies/cold starts work
-    socketRef.current = io(endpoint, {
-      path: "/socket.io",
-      withCredentials: false,
-      reconnection: true,
-      reconnectionAttempts: Infinity,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 10000,
-      timeout: 10000,
-    });
-
-    // Tolerate backend being asleep/unavailable without breaking UI
-    socketRef.current.on("connect_error", (err: any) => {
-      console.warn("Socket connect_error", err?.message || err);
-    });
-    socketRef.current.on("error", (err: any) => {
-      console.warn("Socket error", err?.message || err);
-    });
-
+    socketRef.current = io(endpoint, { transports: ["websocket"], autoConnect: true });
     socketRef.current.on("news:broadcast", (payload: { title?: string; content?: string }) => {
       setNews(payload?.title || payload?.content || initialNews);
     });
@@ -227,13 +217,23 @@ const Display = () => {
     return () => {
       socketRef.current?.disconnect();
     };
-  }, [initialNews, noSocket]);
+  }, [initialNews]);
 
   // Subscribe to bus row changes and hydrate from Supabase
   useEffect(() => {
     const loadBus = async () => {
       if (!deviceId) return;
-      const busNumber = deviceId;
+      
+      // Handle different deviceId formats
+      let busNumber = deviceId;
+      if (deviceId === "Bus 001") {
+        busNumber = "UK07PA0001"; // Map to actual bus number
+      } else if (deviceId === "Bus 002") {
+        busNumber = "UK07PA0002";
+      } else if (deviceId === "Bus 003") {
+        busNumber = "UK07PA0003";
+      }
+      
       console.log("Loading bus data for:", busNumber);
       
       const { supabase } = await import("@/integrations/supabase/client");
@@ -345,56 +345,45 @@ const Display = () => {
   useEffect(() => {
     // Video.js player (skip when using YouTube iframe)
     if (isYouTube) return;
+    if (!videoRef.current) return;
     if (!currentVideoUrl) return; // Wait for video URL to be set
-
-    let cancelled = false;
-
-    const init = () => {
-      if (cancelled) return;
-      if (!videoRef.current) return;
-
-      // Dispose existing player if it exists
-      if (playerRef.current) {
-        playerRef.current.dispose();
-        playerRef.current = null;
-      }
-
-      console.log("Initializing video player with URL:", currentVideoUrl);
-
-      playerRef.current = videojs(videoRef.current, {
-        // Autoplay on TV/Chromium requires muted + playsinline
-        autoplay: 'muted',
-        muted: true,
-        controls: false,
-        preload: "auto",
-        loop: true,
-        playsinline: true as any,
-        html5: {
-          vhs: { overrideNative: true },
-          nativeAudioTracks: false,
-          nativeVideoTracks: false,
-          nativeControlsForTouch: false,
+    
+    // Dispose existing player if it exists
+    if (playerRef.current) {
+      playerRef.current.dispose();
+      playerRef.current = null;
+    }
+    
+    console.log("Initializing video player with URL:", currentVideoUrl);
+    
+    playerRef.current = videojs(videoRef.current, {
+      // Autoplay on TV/Chromium requires muted + playsinline
+      autoplay: 'muted',
+      muted: true,
+      controls: false,
+      preload: "auto",
+      loop: true,
+      playsinline: true as any,
+      html5: {
+        vhs: { overrideNative: true },
+        nativeAudioTracks: false,
+        nativeVideoTracks: false,
+        nativeControlsForTouch: false,
+      },
+      sources: [
+        {
+          src: currentVideoUrl,
+          type: inferMimeType(currentVideoUrl),
         },
-        sources: [
-          {
-            src: currentVideoUrl,
-            type: inferMimeType(currentVideoUrl),
-          },
-        ],
-      });
-
-      // Add error handling
-      playerRef.current.on('error', (error: any) => {
-        console.error('Video player error:', error);
-      });
-    };
-
-    // Defer one tick to ensure the element is in the DOM
-    const timer = window.setTimeout(init, 0);
-
+      ],
+    });
+    
+    // Add error handling
+    playerRef.current.on('error', (error: any) => {
+      console.error('Video player error:', error);
+    });
+    
     return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
       if (playerRef.current) {
         playerRef.current.dispose();
         playerRef.current = null;
@@ -419,7 +408,6 @@ const Display = () => {
               />
             ) : (
               <video 
-                key={currentVideoUrl}
                 ref={videoRef} 
                 className="video-js vjs-big-play-centered w-full h-full object-cover"
                 // Important: hint autoplay on browsers
