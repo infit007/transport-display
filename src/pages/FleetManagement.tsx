@@ -177,11 +177,12 @@ const FleetManagement = () => {
                 Add Bus
               </Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
               <DialogHeader>
                 <DialogTitle>Add New Bus</DialogTitle>
               </DialogHeader>
-              <form onSubmit={handleAddBus} className="space-y-4">
+              <div className="overflow-y-auto flex-1 pr-2">
+                <form onSubmit={handleAddBus} className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="bus-number">Bus Number</Label>
                   <Input
@@ -335,7 +336,8 @@ const FleetManagement = () => {
                 <Button type="submit" className="w-full">
                   Add Bus
                 </Button>
-              </form>
+                </form>
+              </div>
             </DialogContent>
           </Dialog>
         </div>

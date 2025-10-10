@@ -25,14 +25,7 @@
   "generatorApp": "bubblewrap-cli",
   "webManifestUrl": "https://transport-display.vercel.app/manifest.webmanifest",
   "fallbackType": "customtabs",
-  "features": {
-    "playBilling": {
-      "enabled": true
-    },
-    "locationDelegation": {
-      "enabled": true
-    }
-  },
+  "features": {},
   "alphaDependencies": {
     "enabled": false
   },
