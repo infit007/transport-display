@@ -57,7 +57,16 @@ const Media = () => {
         `)
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Database error:', error);
+        // If table doesn't exist, show empty state
+        if (error.code === '42P01') {
+          console.log('media_library table does not exist yet');
+          setMediaItems([]);
+          return;
+        }
+        throw error;
+      }
 
       const formattedData = data?.map(item => ({
         id: item.id,
@@ -74,6 +83,7 @@ const Media = () => {
     } catch (error) {
       console.error('Error fetching media items:', error);
       toast.error("Failed to load media items");
+      setMediaItems([]);
     } finally {
       setLoading(false);
     }
@@ -122,7 +132,13 @@ const Media = () => {
           .from('media-files')
           .upload(fileName, selectedFile);
 
-        if (uploadError) throw uploadError;
+        if (uploadError) {
+          console.error('Storage upload error:', uploadError);
+          if (uploadError.message.includes('Bucket not found')) {
+            throw new Error('Media storage bucket does not exist. Please run the database migrations first.');
+          }
+          throw uploadError;
+        }
 
         const { data: urlData } = supabase.storage
           .from('media-files')
@@ -148,7 +164,13 @@ const Media = () => {
           file_size: fileSize
         }]);
 
-      if (insertError) throw insertError;
+      if (insertError) {
+        console.error('Database insert error:', insertError);
+        if (insertError.code === '42P01') {
+          throw new Error('Media library table does not exist. Please run the database migrations first.');
+        }
+        throw insertError;
+      }
 
       toast.success("Media uploaded successfully!");
       setUploadDialogOpen(false);
