@@ -37,9 +37,16 @@ const Display = () => {
   const showTrail = ["1","true","yes"].includes((searchParams.get("showTrail") || "").toLowerCase());
   const useOsrm = ["1","true","yes"].includes((searchParams.get("osrm") || "").toLowerCase());
   const ytIdParam = searchParams.get("yt");
-  const initialVideo = (
-    searchParams.get("video") || import.meta.env.VITE_PROMO_VIDEO_URL || "https://vjs.zencdn.net/v/oceans.mp4"
-  ).trim();
+  // Resolve initial video URL from query/env with safety checks
+  const resolveInitialVideo = () => {
+    const qp = (searchParams.get("video") || "").trim();
+    if (qp) return qp;
+    const envUrl = (import.meta.env.VITE_PROMO_VIDEO_URL || "").trim();
+    // Ignore placeholder/non-URL values
+    if (envUrl && /^https?:\/\//i.test(envUrl) && !/your-video-url\.mp4/i.test(envUrl)) return envUrl;
+    return "https://vjs.zencdn.net/v/oceans.mp4";
+  };
+  const initialVideo = resolveInitialVideo();
 
   const [news, setNews] = useState<string>(initialNews);
   const [position, setPosition] = useState<{ lat: number; lng: number }>({ lat: initialLat, lng: initialLng });
