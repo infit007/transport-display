@@ -60,6 +60,7 @@ const Display = () => {
   const [endPoint, setEndPoint] = useState<string>("");
   const [mediaFromLibrary, setMediaFromLibrary] = useState<{url: string, type: 'file' | 'link'} | null>(null);
   const [busDepot, setBusDepot] = useState<string>("");
+  const [resolvedBusNumber, setResolvedBusNumber] = useState<string>("");
   const socketRef = useRef<Socket | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const playerRef = useRef<ReturnType<typeof videojs> | null>(null);
@@ -142,6 +143,7 @@ const Display = () => {
         } else if (deviceId === "Bus 003") {
           busNumber = "UK07PA0003";
         }
+        setResolvedBusNumber(busNumber);
         
         console.log("Looking for bus with number:", busNumber);
         
@@ -203,7 +205,10 @@ const Display = () => {
       const t = payload?.targets || {};
       const deviceIds = Array.isArray(t.deviceIds) ? t.deviceIds : [];
       const depots = Array.isArray(t.depots) ? t.depots : [];
-      const matchesDevice = deviceIds.length === 0 || (deviceId && deviceIds.includes(deviceId));
+      const matchesDevice =
+        deviceIds.length === 0 ||
+        (resolvedBusNumber && deviceIds.includes(resolvedBusNumber)) ||
+        (deviceId && deviceIds.includes(deviceId));
       const matchesDepot = depots.length === 0 || (busDepot && depots.includes(busDepot));
       if (matchesDevice && matchesDepot) {
         setNews(payload?.title || payload?.content || initialNews);
@@ -279,6 +284,7 @@ const Display = () => {
       } else if (deviceId === "Bus 003") {
         busNumber = "UK07PA0003";
       }
+      setResolvedBusNumber(busNumber);
       
       console.log("Loading bus data for:", busNumber);
       
