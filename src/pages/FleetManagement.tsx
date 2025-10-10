@@ -39,6 +39,43 @@ const FleetManagement = () => {
   const [buses, setBuses] = useState<BusData[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const uttarakhandDepots = [
+    "Dehradun Depot",
+    "Haridwar Depot",
+    "Rishikesh Depot",
+    "Roorkee Depot",
+    "Haldwani Depot",
+    "Nainital Depot",
+    "Almora Depot",
+    "Ranikhet Depot",
+    "Pithoragarh Depot",
+    "Champawat Depot",
+    "Bageshwar Depot",
+    "Kausani Depot",
+    "Tanakpur Depot",
+    "Khatima Depot",
+    "Kashipur Depot",
+    "Rudrapur Depot",
+    "Sitarganj Depot",
+    "Jaspur Depot",
+    "Bazpur Depot",
+    "Mussoorie Depot",
+    "Vikasnagar Depot",
+    "Doiwala Depot",
+    "Pauri Depot",
+    "Kotdwar Depot",
+    "Srinagar (Garhwal) Depot",
+    "Devprayag Depot",
+    "Tehri Depot",
+    "New Tehri Depot",
+    "Uttarkashi Depot",
+    "Joshimath Depot",
+    "Gopeshwar (Chamoli) Depot",
+    "Rudraprayag Depot",
+    "Lansdowne Depot",
+    "Kichha Depot"
+  ];
+  const [selectedDepotFilter, setSelectedDepotFilter] = useState<string>("");
   const [busNumber, setBusNumber] = useState("");
   const [routeName, setRouteName] = useState("");
   const [status, setStatus] = useState<"active" | "maintenance" | "offline">("active");
@@ -51,6 +88,7 @@ const FleetManagement = () => {
   const [startPoint, setStartPoint] = useState("");
   const [endPoint, setEndPoint] = useState("");
   const [depo, setDepo] = useState("");
+  const [customDepot, setCustomDepot] = useState("");
   const [category, setCategory] = useState<"ev" | "small_bus" | "big_bus">("big_bus");
   const [sittingCapacity, setSittingCapacity] = useState<number>(48);
   const [runningHours, setRunningHours] = useState<12 | 15 | 24>(12);
@@ -72,12 +110,23 @@ const FleetManagement = () => {
     };
   }, []);
 
+  useEffect(() => {
+    // Refetch whenever depot filter changes
+    fetchBuses();
+  }, [selectedDepotFilter]);
+
   const fetchBuses = async () => {
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('buses')
         .select('*')
         .order('created_at', { ascending: false });
+
+      if (selectedDepotFilter) {
+        query = query.eq('depo', selectedDepotFilter);
+      }
+
+      const { data, error } = await query;
 
       if (error) throw error;
       setBuses(data || []);
@@ -112,7 +161,7 @@ const FleetManagement = () => {
             conductor_phone: conductorPhone,
             start_point: startPoint,
             end_point: endPoint,
-            depo: depo,
+            depo: depo === "Other (Custom)" ? (customDepot || null) : depo,
             category: category,
             sitting_capacity: sittingCapacity,
             running_hours: runningHours,
@@ -168,6 +217,22 @@ const FleetManagement = () => {
             <p className="text-muted-foreground">
               Manage and monitor your bus fleet
             </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-64">
+              <Label>Filter by Depot</Label>
+              <Select value={selectedDepotFilter} onValueChange={(v) => setSelectedDepotFilter(v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All Depots" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">All Depots</SelectItem>
+                  {uttarakhandDepots.map((d) => (
+                    <SelectItem key={d} value={d}>{d}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -266,11 +331,25 @@ const FleetManagement = () => {
                 </div>
                 <div className="space-y-2">
                   <Label>Depot</Label>
-                  <Input
-                    placeholder="Depot"
-                    value={depo}
-                    onChange={(e) => setDepo(e.target.value)}
-                  />
+                  <Select value={depo} onValueChange={(v) => { setDepo(v); if (v !== "Other (Custom)") setCustomDepot(""); }}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select Depot" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {uttarakhandDepots.map((d) => (
+                        <SelectItem key={d} value={d}>{d}</SelectItem>
+                      ))}
+                      <SelectItem value="Other (Custom)">Other (Custom)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {depo === "Other (Custom)" && (
+                    <Input
+                      className="mt-2"
+                      placeholder="Enter custom depot name"
+                      value={customDepot}
+                      onChange={(e) => setCustomDepot(e.target.value)}
+                    />
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label>Category</Label>
