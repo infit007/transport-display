@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { getContent, openSocket } from '../services/api';
+import { supabase } from '../services/supabase';
 import { getDeviceId, getToken, logout } from '../services/auth';
 
 const Display = () => {
@@ -30,37 +31,56 @@ const Display = () => {
       if (!payload || (payload.deviceId && payload.deviceId !== deviceId)) return;
       load();
     });
+    // Live news/ticker via Supabase (optional)
+    if (supabase) {
+      const channel = supabase
+        .channel('tv-news')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'news_feeds' }, (payload) => {
+          const row = payload.new || {};
+          if (row.is_active) setTicker(row.title || row.content || '');
+        })
+        .subscribe();
+      return () => {
+        clearInterval(timerRef.current);
+        socket.close();
+        supabase.removeChannel(channel);
+      };
+    }
     return () => {
       clearInterval(timerRef.current);
       socket.close();
     };
   }, []);
 
+  const primary = items[0] || { type: 'text', text: 'Awaiting content…' };
+  const schedule = items.slice(1);
+
   return (
     <div className="content">
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16 }}>
         <div style={{ background: '#000', borderRadius: 12, height: '100%' }}>
-          {/* Simple renderer: show first video/image/text */}
-          {items[0]?.type === 'video' && (
-            <video src={items[0].url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} autoPlay muted loop playsInline />
-          )}
-          {items[0]?.type === 'image' && (
-            <img src={items[0].url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          )}
-          {items[0]?.type === 'text' && (
-            <div className="screen" style={{ fontSize: 48, textAlign: 'center' }}>{items[0].text}</div>
+          {primary.type === 'video' ? (
+            <video src={primary.url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} autoPlay muted loop playsInline />
+          ) : primary.type === 'image' ? (
+            <img src={primary.url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          ) : (
+            <div className="screen" style={{ fontSize: 48, textAlign: 'center' }}>{primary.text}</div>
           )}
         </div>
         <div style={{ background: '#0b0b0b', borderRadius: 12, padding: 16, overflow: 'auto' }}>
           <h2>Schedule</h2>
-          <ul>
-            {items.slice(1).map((it, i) => (
-              <li key={i} style={{ margin: '12px 0' }}>{it.title || it.text || it.url}</li>
-            ))}
-          </ul>
+          {schedule.length === 0 ? (
+            <div className="hint">No schedule yet. Configure in CMS.</div>
+          ) : (
+            <ul>
+              {schedule.map((it, i) => (
+                <li key={i} style={{ margin: '12px 0' }}>{it.title || it.text || it.url}</li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
-      <div className="ticker">{ticker}</div>
+      <div className="ticker">{ticker || 'Welcome'}</div>
     </div>
   );
 };
