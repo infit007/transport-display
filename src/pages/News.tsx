@@ -1,11 +1,159 @@
+import { useEffect, useMemo, useRef, useState } from "react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { io, Socket } from "socket.io-client";
+
+type NewsRow = {
+  id: string;
+  title: string;
+  content: string;
+  priority: number;
+  is_active: boolean;
+  created_at: string;
+};
 
 const News = () => {
+  const [title, setTitle] = useState("");
+  const [content, setContent] = useState("");
+  const [priority, setPriority] = useState<number>(1);
+  const [isActive, setIsActive] = useState<boolean>(true);
+  const [items, setItems] = useState<NewsRow[]>([]);
+  const socketRef = useRef<Socket | null>(null);
+  const backendUrl = useMemo(() => import.meta.env.VITE_BACKEND_URL || "http://localhost:4000", []);
+
+  const loadNews = async () => {
+    const { data, error } = await (supabase as any)
+      .from("news_feeds")
+      .select("id, title, content, priority, is_active, created_at")
+      .order("created_at", { ascending: false });
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    setItems(data || []);
+  };
+
+  useEffect(() => {
+    loadNews();
+    // connect socket for push actions
+    try {
+      socketRef.current = io(backendUrl, { transports: ["websocket"], autoConnect: true });
+    } catch {
+      // ignore
+    }
+    return () => {
+      socketRef.current?.disconnect();
+    };
+  }, []);
+
+  const createNews = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const payload = { title, content, priority, is_active: isActive } as any;
+    const { error } = await (supabase as any).from("news_feeds").insert([payload]);
+    if (error) return toast.error(error.message);
+    toast.success("News created");
+    setTitle("");
+    setContent("");
+    setPriority(1);
+    setIsActive(true);
+    loadNews();
+  };
+
+  const toggleActive = async (id: string, value: boolean) => {
+    const { error } = await (supabase as any).from("news_feeds").update({ is_active: value }).eq("id", id);
+    if (error) return toast.error(error.message);
+    loadNews();
+  };
+
+  const pushNow = (row?: Partial<NewsRow>) => {
+    const payload = {
+      title: (row?.title || title || "").trim(),
+      content: (row?.content || content || "").trim(),
+    };
+    if (!payload.title && !payload.content) {
+      return toast.error("Nothing to push. Provide a title or content.");
+    }
+    if (!socketRef.current) {
+      return toast.error("Push channel not connected.");
+    }
+    socketRef.current.emit("news:push", payload);
+    toast.success("Pushed to displays");
+  };
+
   return (
     <DashboardLayout>
-      <div className="space-y-4">
-        <h1 className="text-2xl font-bold">News Feeds</h1>
-        <p className="text-muted-foreground">Manage and push news updates to displays.</p>
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold">News Feeds</h1>
+          <p className="text-muted-foreground">Manage and push news updates to displays.</p>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle>Create News</CardTitle>
+              <div className="flex items-center gap-2">
+                <Button type="button" variant="secondary" onClick={() => pushNow()}>Push now</Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={createNews} className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div>
+                <Label>Title</Label>
+                <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Headline" />
+              </div>
+              <div className="md:col-span-2">
+                <Label>Content</Label>
+                <Input value={content} onChange={(e) => setContent(e.target.value)} placeholder="Ticker text" />
+              </div>
+              <div>
+                <Label>Priority</Label>
+                <Input type="number" value={priority} onChange={(e) => setPriority(Number(e.target.value))} />
+              </div>
+              <div className="flex items-end gap-4">
+                <div className="flex items-center gap-2">
+                  <Switch checked={isActive} onCheckedChange={setIsActive} />
+                  <Label className="!m-0">Active</Label>
+                </div>
+                <div className="flex gap-2">
+                  <Button type="submit">Create</Button>
+                  <Button type="button" variant="outline" onClick={() => pushNow()}>Create later, push now</Button>
+                </div>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Existing</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {items.map((n) => (
+              <div key={n.id} className="flex items-center justify-between border rounded-lg p-3">
+                <div>
+                  <div className="font-medium">{n.title || "Untitled"}</div>
+                  <div className="text-sm text-muted-foreground">{n.content}</div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs">Priority {n.priority}</span>
+                  <div className="flex items-center gap-2">
+                    <Switch checked={n.is_active} onCheckedChange={(v) => toggleActive(n.id, v)} />
+                    <span className="text-xs">Active</span>
+                  </div>
+                  <Button size="sm" onClick={() => pushNow(n)}>Push</Button>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
       </div>
     </DashboardLayout>
   );
