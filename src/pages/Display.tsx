@@ -320,6 +320,21 @@ const Display = () => {
     return null;
   };
 
+  // Infer a reasonable MIME type from URL extension
+  const inferMimeType = (url: string): string => {
+    try {
+      const pathname = new URL(url).pathname.toLowerCase();
+      if (pathname.endsWith('.mp4')) return 'video/mp4';
+      if (pathname.endsWith('.webm')) return 'video/webm';
+      if (pathname.endsWith('.ogg') || pathname.endsWith('.ogv')) return 'video/ogg';
+      if (pathname.endsWith('.mov')) return 'video/quicktime';
+      if (pathname.endsWith('.m3u8')) return 'application/vnd.apple.mpegurl';
+      return 'video/mp4';
+    } catch {
+      return 'video/mp4';
+    }
+  };
+
   useEffect(() => {
     // Video.js player (skip when using YouTube iframe)
     if (isYouTube) return;
@@ -335,14 +350,23 @@ const Display = () => {
     console.log("Initializing video player with URL:", currentVideoUrl);
     
     playerRef.current = videojs(videoRef.current, {
-      autoplay: true,
+      // Autoplay on TV/Chromium requires muted + playsinline
+      autoplay: 'muted',
+      muted: true,
       controls: false,
       preload: "auto",
       loop: true,
+      playsinline: true as any,
+      html5: {
+        vhs: { overrideNative: true },
+        nativeAudioTracks: false,
+        nativeVideoTracks: false,
+        nativeControlsForTouch: false,
+      },
       sources: [
         {
           src: currentVideoUrl,
-          type: "video/mp4",
+          type: inferMimeType(currentVideoUrl),
         },
       ],
     });
@@ -376,7 +400,15 @@ const Display = () => {
                 frameBorder={0}
               />
             ) : (
-              <video ref={videoRef} className="video-js vjs-big-play-centered w-full h-full object-cover" />
+              <video 
+                ref={videoRef} 
+                className="video-js vjs-big-play-centered w-full h-full object-cover"
+                // Important: hint autoplay on browsers
+                muted
+                playsInline
+                preload="auto"
+                crossOrigin="anonymous"
+              />
             )}
           </div>
 
