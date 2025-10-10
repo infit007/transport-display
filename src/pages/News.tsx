@@ -125,12 +125,12 @@ const News = () => {
               </div>
               <div>
                 <Label>Target Depot</Label>
-                <Select value={targetDepot} onValueChange={setTargetDepot}>
+                <Select value={targetDepot || "__ALL__"} onValueChange={(v) => setTargetDepot(v === "__ALL__" ? "" : v)}>
                   <SelectTrigger>
                     <SelectValue placeholder="All Depots" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">All Depots</SelectItem>
+                    <SelectItem value="__ALL__">All Depots</SelectItem>
                     {uttarakhandDepots.map((d) => (
                       <SelectItem key={d} value={d}>{d}</SelectItem>
                     ))}
