@@ -13,11 +13,18 @@ export default function createNewsRoutes(io) {
   });
 
   router.post('/', authenticate, requireRole('admin', 'operator'), async (req, res) => {
-    const { title, content, priority, is_active, expires_at } = req.body;
+    const { title, content, priority, is_active, expires_at, targets } = req.body;
     const { error, data } = await supabase.from('news_feeds').insert([{ title, content, priority, is_active, expires_at }]).select('*').single();
     if (error) return res.status(400).json({ error: error.message });
-    io.emit('news:broadcast', { title: data.title, content: data.content });
+    io.emit('news:broadcast', { title: data.title, content: data.content, targets: targets || {} });
     return res.status(201).json(data);
+  });
+
+  // Optional direct push endpoint (no DB write)
+  router.post('/push', authenticate, requireRole('admin', 'operator'), async (req, res) => {
+    const { title, content, targets } = req.body || {};
+    io.emit('news:broadcast', { title, content, targets: targets || {} });
+    return res.json({ ok: true });
   });
 
   return router;

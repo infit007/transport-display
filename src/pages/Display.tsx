@@ -59,6 +59,7 @@ const Display = () => {
   const [startPoint, setStartPoint] = useState<string>("");
   const [endPoint, setEndPoint] = useState<string>("");
   const [mediaFromLibrary, setMediaFromLibrary] = useState<{url: string, type: 'file' | 'link'} | null>(null);
+  const [busDepot, setBusDepot] = useState<string>("");
   const socketRef = useRef<Socket | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const playerRef = useRef<ReturnType<typeof videojs> | null>(null);
@@ -197,8 +198,16 @@ const Display = () => {
     // Socket wiring
     const endpoint = import.meta.env.VITE_BACKEND_URL || "http://localhost:4000";
     socketRef.current = io(endpoint, { transports: ["websocket"], autoConnect: true });
-    socketRef.current.on("news:broadcast", (payload: { title?: string; content?: string }) => {
-      setNews(payload?.title || payload?.content || initialNews);
+    socketRef.current.on("news:broadcast", (payload: { title?: string; content?: string; targets?: { deviceIds?: string[]; depots?: string[] } }) => {
+      // Targeting logic: if targets present, must match
+      const t = payload?.targets || {};
+      const deviceIds = Array.isArray(t.deviceIds) ? t.deviceIds : [];
+      const depots = Array.isArray(t.depots) ? t.depots : [];
+      const matchesDevice = deviceIds.length === 0 || (deviceId && deviceIds.includes(deviceId));
+      const matchesDepot = depots.length === 0 || (busDepot && depots.includes(busDepot));
+      if (matchesDevice && matchesDepot) {
+        setNews(payload?.title || payload?.content || initialNews);
+      }
     });
     const targetDeviceId = new URLSearchParams(window.location.search).get("deviceId");
     socketRef.current.on("gps:position", (payload: GpsPayload & { deviceId?: string }) => {
@@ -276,7 +285,7 @@ const Display = () => {
       const { supabase } = await import("@/integrations/supabase/client");
       const { data, error } = await (supabase as any)
         .from("buses")
-        .select("bus_number, start_point, end_point, route_name, driver_name, conductor_name, gps_latitude, gps_longitude")
+        .select("bus_number, start_point, end_point, route_name, driver_name, conductor_name, gps_latitude, gps_longitude, depo")
         .eq("bus_number", busNumber)
         .maybeSingle();
         
@@ -291,6 +300,7 @@ const Display = () => {
         if (data.end_point) setEndPoint(data.end_point);
         if (data.start_point) setNextStop(data.start_point);
         if (data.end_point) setDestination(data.end_point);
+        if (data.depo) setBusDepot(data.depo);
         
         // Update position if GPS coordinates are available
         if (data.gps_latitude && data.gps_longitude) {
@@ -315,6 +325,7 @@ const Display = () => {
             if (row.gps_latitude && row.gps_longitude) {
               setPosition({ lat: row.gps_latitude, lng: row.gps_longitude });
             }
+            if (row.depo) setBusDepot(row.depo);
           }
         )
         .subscribe();
