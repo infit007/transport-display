@@ -5,6 +5,8 @@ import { getDeviceId, getToken, logout } from '../services/auth';
 
 const Display = () => {
   const deviceId = getDeviceId();
+  const selectedBusNumber = localStorage.getItem('tv_bus_number') || '';
+  const selectedDepot = localStorage.getItem('tv_depot') || '';
   const [items, setItems] = useState([]);
   const [ticker, setTicker] = useState('');
   const timerRef = useRef(null);
@@ -28,7 +30,15 @@ const Display = () => {
     timerRef.current = setInterval(load, 30000);
     const socket = openSocket();
     socket.on('content:update', (payload) => {
-      if (!payload || (payload.deviceId && payload.deviceId !== deviceId)) return;
+      if (!payload) return;
+      if (payload.deviceId && deviceId && payload.deviceId !== deviceId) return;
+      if (payload.targets) {
+        const ids = Array.isArray(payload.targets.deviceIds) ? payload.targets.deviceIds : [];
+        const depos = Array.isArray(payload.targets.depots) ? payload.targets.depots : [];
+        const okId = ids.length === 0 || ids.includes(selectedBusNumber);
+        const okDepot = depos.length === 0 || (selectedDepot && depos.includes(selectedDepot));
+        if (!okId || !okDepot) return;
+      }
       load();
     });
     // Live news/ticker via Supabase (optional)

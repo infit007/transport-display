@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import screenfull from 'screenfull';
 import Registration from './components/Registration';
+import BusSelector from './components/BusSelector';
 import Display from './components/Display';
 import { getToken, isRegistered, validateToken } from './services/auth';
 
@@ -24,9 +25,8 @@ const App = () => {
   }, [registered]);
 
   if (checking) return null;
-  if (!registered || !tokenValid) {
-    return <Registration onRegistered={() => setRegistered(true)} />;
-  }
+  if (!registered || !tokenValid) return <Registration onRegistered={() => setRegistered(true)} />;
+  if (!localStorage.getItem('tv_bus_number') && !localStorage.getItem('tv_depot')) return <BusSelector onDone={() => window.location.reload()} />;
   return <Display />;
 };
 
