@@ -326,6 +326,8 @@ const Display = () => {
     // Video.js player (skip when using YouTube iframe)
     if (isYouTube) return;
     if (!videoRef.current) return;
+    // Guard: ensure element is attached to the DOM
+    if (!document.contains(videoRef.current)) return;
     if (!currentVideoUrl) return; // Wait for video URL to be set
     
     // Dispose existing player if it exists
@@ -388,6 +390,7 @@ const Display = () => {
               />
             ) : (
               <video 
+                key={currentVideoUrl}
                 ref={videoRef} 
                 className="video-js vjs-big-play-centered w-full h-full object-cover"
                 // Important: hint autoplay on browsers
