@@ -59,7 +59,14 @@ const News = () => {
 
   const createNews = async (e: React.FormEvent) => {
     e.preventDefault();
-    const payload = { title: message, content: message, priority, is_active: isActive } as any;
+    const payload = {
+      title: message,
+      content: message,
+      priority,
+      is_active: isActive,
+      target_depots: targetDepot ? [targetDepot] : [],
+      target_device_ids: targetBusNumber ? [targetBusNumber] : [],
+    } as any;
     const { error } = await (supabase as any).from("news_feeds").insert([payload]);
     if (error) return toast.error(error.message);
     toast.success("News created");
@@ -83,7 +90,14 @@ const News = () => {
     // Save to DB first so it shows under Existing
     try {
       const { error } = await (supabase as any).from("news_feeds").insert([
-        { title: titleVal, content: contentVal, priority, is_active: true }
+        {
+          title: titleVal,
+          content: contentVal,
+          priority,
+          is_active: true,
+          target_depots: targetDepot ? [targetDepot] : [],
+          target_device_ids: targetBusNumber ? [targetBusNumber] : [],
+        }
       ]);
       if (error) {
         // Still allow push even if save fails

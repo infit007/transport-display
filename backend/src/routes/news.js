@@ -25,7 +25,13 @@ export default function createNewsRoutes(io) {
 
   router.post('/', authenticate, requireRole('admin', 'operator'), async (req, res) => {
     const { title, content, priority, is_active, expires_at, targets } = req.body;
-    const { error, data } = await supabase.from('news_feeds').insert([{ title, content, priority, is_active, expires_at }]).select('*').single();
+    const targetDepots = targets?.depots || [];
+    const targetDeviceIds = targets?.deviceIds || [];
+    const { error, data } = await supabase
+      .from('news_feeds')
+      .insert([{ title, content, priority, is_active, expires_at, target_depots: targetDepots, target_device_ids: targetDeviceIds }])
+      .select('*')
+      .single();
     if (error) return res.status(400).json({ error: error.message });
     io.emit('news:broadcast', { title: data.title, content: data.content, targets: targets || {} });
     return res.status(201).json(data);
@@ -41,9 +47,11 @@ export default function createNewsRoutes(io) {
   // Public endpoint to create and broadcast (uses service role). Consider protecting with an API key.
   router.post('/public', async (req, res) => {
     const { title, content, priority, is_active, expires_at, targets } = req.body || {};
+    const targetDepots = targets?.depots || [];
+    const targetDeviceIds = targets?.deviceIds || [];
     const { error, data } = await supabase
       .from('news_feeds')
-      .insert([{ title, content, priority, is_active, expires_at }])
+      .insert([{ title, content, priority, is_active, expires_at, target_depots: targetDepots, target_device_ids: targetDeviceIds }])
       .select('*')
       .single();
     if (error) return res.status(400).json({ error: error.message });
