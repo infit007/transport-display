@@ -58,6 +58,12 @@ const Display = () => {
 
   // Detect YouTube links and build an embeddable URL
   const currentVideoUrl = mediaFromLibrary?.url || videoUrl;
+  
+  // Debug logging
+  console.log("Current video URL:", currentVideoUrl);
+  console.log("Media from library:", mediaFromLibrary);
+  console.log("Original video URL:", videoUrl);
+  
   const isYouTube = useMemo(() => {
     if (mediaFromLibrary?.type === 'link') {
       return /(?:youtu\.be\/|youtube\.com\/)/i.test(mediaFromLibrary.url);
@@ -170,6 +176,7 @@ const Display = () => {
           setVideoUrl(data.url);
         } else {
           console.log("No media found for bus:", busData.bus_number);
+          // Keep using the default video URL from URL parameters
         }
       } catch (error) {
         console.log("Error fetching media from library:", error);
@@ -209,25 +216,61 @@ const Display = () => {
   useEffect(() => {
     const loadBus = async () => {
       if (!deviceId) return;
+      
+      // Handle different deviceId formats
+      let busNumber = deviceId;
+      if (deviceId === "Bus 001") {
+        busNumber = "UK07PA0001"; // Map to actual bus number
+      } else if (deviceId === "Bus 002") {
+        busNumber = "UK07PA0002";
+      } else if (deviceId === "Bus 003") {
+        busNumber = "UK07PA0003";
+      }
+      
+      console.log("Loading bus data for:", busNumber);
+      
       const { supabase } = await import("@/integrations/supabase/client");
-      const { data } = await (supabase as any)
+      const { data, error } = await (supabase as any)
         .from("buses")
-        .select("bus_number, start_point, end_point, route_name, driver_name, conductor_name")
-        .eq("bus_number", deviceId)
+        .select("bus_number, start_point, end_point, route_name, driver_name, conductor_name, gps_latitude, gps_longitude")
+        .eq("bus_number", busNumber)
         .maybeSingle();
-      if (data?.start_point) setStartPoint(data.start_point);
-      if (data?.end_point) setEndPoint(data.end_point);
+        
+      if (error) {
+        console.log("Error loading bus:", error.message);
+        return;
+      }
+        
+      if (data) {
+        console.log("Loaded bus data:", data);
+        if (data.start_point) setStartPoint(data.start_point);
+        if (data.end_point) setEndPoint(data.end_point);
+        if (data.start_point) setNextStop(data.start_point);
+        if (data.end_point) setDestination(data.end_point);
+        
+        // Update position if GPS coordinates are available
+        if (data.gps_latitude && data.gps_longitude) {
+          setPosition({ lat: data.gps_latitude, lng: data.gps_longitude });
+        }
+      } else {
+        console.log("No bus found with number:", busNumber);
+      }
 
       // live subscription
       const channel = (supabase as any)
-        .channel("bus-" + deviceId)
+        .channel("bus-" + busNumber)
         .on(
           "postgres_changes",
-          { event: "UPDATE", schema: "public", table: "buses", filter: `bus_number=eq.${deviceId}` },
+          { event: "UPDATE", schema: "public", table: "buses", filter: `bus_number=eq.${busNumber}` },
           (payload: any) => {
             const row = payload.new || {};
             if (row.start_point) setStartPoint(row.start_point);
             if (row.end_point) setEndPoint(row.end_point);
+            if (row.start_point) setNextStop(row.start_point);
+            if (row.end_point) setDestination(row.end_point);
+            if (row.gps_latitude && row.gps_longitude) {
+              setPosition({ lat: row.gps_latitude, lng: row.gps_longitude });
+            }
           }
         )
         .subscribe();
@@ -281,7 +324,16 @@ const Display = () => {
     // Video.js player (skip when using YouTube iframe)
     if (isYouTube) return;
     if (!videoRef.current) return;
-    if (playerRef.current) return; // once
+    if (!currentVideoUrl) return; // Wait for video URL to be set
+    
+    // Dispose existing player if it exists
+    if (playerRef.current) {
+      playerRef.current.dispose();
+      playerRef.current = null;
+    }
+    
+    console.log("Initializing video player with URL:", currentVideoUrl);
+    
     playerRef.current = videojs(videoRef.current, {
       autoplay: true,
       controls: false,
@@ -294,9 +346,17 @@ const Display = () => {
         },
       ],
     });
+    
+    // Add error handling
+    playerRef.current.on('error', (error: any) => {
+      console.error('Video player error:', error);
+    });
+    
     return () => {
-      playerRef.current?.dispose();
-      playerRef.current = null;
+      if (playerRef.current) {
+        playerRef.current.dispose();
+        playerRef.current = null;
+      }
     };
   }, [isYouTube, currentVideoUrl]);
 
