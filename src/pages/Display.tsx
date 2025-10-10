@@ -37,6 +37,7 @@ const Display = () => {
   const showTrail = ["1","true","yes"].includes((searchParams.get("showTrail") || "").toLowerCase());
   const useOsrm = ["1","true","yes"].includes((searchParams.get("osrm") || "").toLowerCase());
   const ytIdParam = searchParams.get("yt");
+  const noSocket = ["1","true","yes"].includes((searchParams.get("nosocket") || "").toLowerCase());
   // Resolve initial video URL from query/env with safety checks
   const resolveInitialVideo = () => {
     const qp = (searchParams.get("video") || "").trim();
@@ -184,9 +185,28 @@ const Display = () => {
   }, [deviceId]);
 
   useEffect(() => {
+    if (noSocket) return;
     // Socket wiring
     const endpoint = import.meta.env.VITE_BACKEND_URL || "http://localhost:4000";
-    socketRef.current = io(endpoint, { transports: ["websocket"], autoConnect: true });
+    // Do NOT force websocket; allow polling fallback so proxies/cold starts work
+    socketRef.current = io(endpoint, {
+      path: "/socket.io",
+      withCredentials: false,
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 10000,
+      timeout: 10000,
+    });
+
+    // Tolerate backend being asleep/unavailable without breaking UI
+    socketRef.current.on("connect_error", (err: any) => {
+      console.warn("Socket connect_error", err?.message || err);
+    });
+    socketRef.current.on("error", (err: any) => {
+      console.warn("Socket error", err?.message || err);
+    });
+
     socketRef.current.on("news:broadcast", (payload: { title?: string; content?: string }) => {
       setNews(payload?.title || payload?.content || initialNews);
     });
@@ -207,7 +227,7 @@ const Display = () => {
     return () => {
       socketRef.current?.disconnect();
     };
-  }, [initialNews]);
+  }, [initialNews, noSocket]);
 
   // Subscribe to bus row changes and hydrate from Supabase
   useEffect(() => {
