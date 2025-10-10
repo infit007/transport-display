@@ -325,47 +325,56 @@ const Display = () => {
   useEffect(() => {
     // Video.js player (skip when using YouTube iframe)
     if (isYouTube) return;
-    if (!videoRef.current) return;
-    // Guard: ensure element is attached to the DOM
-    if (!document.contains(videoRef.current)) return;
     if (!currentVideoUrl) return; // Wait for video URL to be set
-    
-    // Dispose existing player if it exists
-    if (playerRef.current) {
-      playerRef.current.dispose();
-      playerRef.current = null;
-    }
-    
-    console.log("Initializing video player with URL:", currentVideoUrl);
-    
-    playerRef.current = videojs(videoRef.current, {
-      // Autoplay on TV/Chromium requires muted + playsinline
-      autoplay: 'muted',
-      muted: true,
-      controls: false,
-      preload: "auto",
-      loop: true,
-      playsinline: true as any,
-      html5: {
-        vhs: { overrideNative: true },
-        nativeAudioTracks: false,
-        nativeVideoTracks: false,
-        nativeControlsForTouch: false,
-      },
-      sources: [
-        {
-          src: currentVideoUrl,
-          type: inferMimeType(currentVideoUrl),
+
+    let cancelled = false;
+
+    const init = () => {
+      if (cancelled) return;
+      if (!videoRef.current) return;
+
+      // Dispose existing player if it exists
+      if (playerRef.current) {
+        playerRef.current.dispose();
+        playerRef.current = null;
+      }
+
+      console.log("Initializing video player with URL:", currentVideoUrl);
+
+      playerRef.current = videojs(videoRef.current, {
+        // Autoplay on TV/Chromium requires muted + playsinline
+        autoplay: 'muted',
+        muted: true,
+        controls: false,
+        preload: "auto",
+        loop: true,
+        playsinline: true as any,
+        html5: {
+          vhs: { overrideNative: true },
+          nativeAudioTracks: false,
+          nativeVideoTracks: false,
+          nativeControlsForTouch: false,
         },
-      ],
-    });
-    
-    // Add error handling
-    playerRef.current.on('error', (error: any) => {
-      console.error('Video player error:', error);
-    });
-    
+        sources: [
+          {
+            src: currentVideoUrl,
+            type: inferMimeType(currentVideoUrl),
+          },
+        ],
+      });
+
+      // Add error handling
+      playerRef.current.on('error', (error: any) => {
+        console.error('Video player error:', error);
+      });
+    };
+
+    // Defer one tick to ensure the element is in the DOM
+    const timer = window.setTimeout(init, 0);
+
     return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
       if (playerRef.current) {
         playerRef.current.dispose();
         playerRef.current = null;
