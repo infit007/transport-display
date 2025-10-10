@@ -219,6 +219,43 @@ const Display = () => {
     };
   }, [initialNews]);
 
+  // Load latest active news from Supabase and subscribe to changes
+  useEffect(() => {
+    const loadNews = async () => {
+      try {
+        const { supabase } = await import("@/integrations/supabase/client");
+        const { data } = await (supabase as any)
+          .from("news_feeds")
+          .select("title, content, priority, is_active, expires_at")
+          .eq("is_active", true)
+          .order("priority", { ascending: false })
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (data) setNews(data.title || data.content || initialNews);
+
+        const channel = (supabase as any)
+          .channel("news-ticker")
+          .on("postgres_changes", { event: "INSERT", schema: "public", table: "news_feeds" }, (payload: any) => {
+            const row = payload.new || {};
+            if (row.is_active) setNews(row.title || row.content || initialNews);
+          })
+          .on("postgres_changes", { event: "UPDATE", schema: "public", table: "news_feeds" }, (payload: any) => {
+            const row = payload.new || {};
+            if (row.is_active) setNews(row.title || row.content || initialNews);
+          })
+          .subscribe();
+
+        return () => {
+          (supabase as any).removeChannel?.(channel);
+        };
+      } catch {
+        // ignore
+      }
+    };
+    loadNews();
+  }, [initialNews]);
+
   // Subscribe to bus row changes and hydrate from Supabase
   useEffect(() => {
     const loadBus = async () => {
