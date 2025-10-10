@@ -160,7 +160,7 @@ const Media = () => {
           name: mediaName.trim(),
           type: mediaType,
           url: mediaUrl,
-          bus_id: selectedBus || null,
+          bus_id: selectedBus === "none" ? null : selectedBus || null,
           file_size: fileSize
         }]);
 
@@ -204,7 +204,7 @@ const Media = () => {
 
   const resetForm = () => {
     setMediaName("");
-    setSelectedBus("");
+    setSelectedBus("none");
     setVideoLink("");
     setSelectedFile(null);
     if (fileInputRef.current) {
@@ -296,7 +296,7 @@ const Media = () => {
                         <SelectValue placeholder="Select a bus" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">No specific bus</SelectItem>
+                        <SelectItem value="none">No specific bus</SelectItem>
                         {buses.map((bus) => (
                           <SelectItem key={bus.id} value={bus.id}>
                             {bus.bus_number} - {bus.route_name}
