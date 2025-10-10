@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Link } from "react-router-dom";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Bus, Plus, MapPin, Clock } from "lucide-react";
 import { toast } from "sonner";
@@ -177,12 +177,12 @@ const FleetManagement = () => {
                 Add Bus
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
-              <DialogHeader>
+            <DialogContent className="max-w-4xl max-h-[95vh] overflow-hidden flex flex-col">
+              <DialogHeader className="flex-shrink-0">
                 <DialogTitle>Add New Bus</DialogTitle>
               </DialogHeader>
-              <div className="overflow-y-auto flex-1 pr-2">
-                <form onSubmit={handleAddBus} className="space-y-4">
+              <div className="overflow-y-auto flex-1 pr-2 space-y-4">
+                <form id="add-bus-form" onSubmit={handleAddBus} className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="bus-number">Bus Number</Label>
                   <Input
@@ -333,11 +333,13 @@ const FleetManagement = () => {
                     </SelectContent>
                   </Select>
                 </div>
-                <Button type="submit" className="w-full">
-                  Add Bus
-                </Button>
                 </form>
               </div>
+              <DialogFooter className="flex-shrink-0 pt-4">
+                <Button type="submit" form="add-bus-form" className="w-full">
+                  Add Bus
+                </Button>
+              </DialogFooter>
             </DialogContent>
           </Dialog>
         </div>
