@@ -20,8 +20,7 @@ type NewsRow = {
 };
 
 const News = () => {
-  const [title, setTitle] = useState("");
-  const [content, setContent] = useState("");
+  const [message, setMessage] = useState("");
   const [priority, setPriority] = useState<number>(1);
   const [isActive, setIsActive] = useState<boolean>(true);
   const [items, setItems] = useState<NewsRow[]>([]);
@@ -60,12 +59,11 @@ const News = () => {
 
   const createNews = async (e: React.FormEvent) => {
     e.preventDefault();
-    const payload = { title, content, priority, is_active: isActive } as any;
+    const payload = { title: message, content: message, priority, is_active: isActive } as any;
     const { error } = await (supabase as any).from("news_feeds").insert([payload]);
     if (error) return toast.error(error.message);
     toast.success("News created");
-    setTitle("");
-    setContent("");
+    setMessage("");
     setPriority(1);
     setIsActive(true);
     loadNews();
@@ -78,9 +76,9 @@ const News = () => {
   };
 
   const pushNow = async (row?: Partial<NewsRow>) => {
-    const titleVal = (row?.title || title || "").trim();
-    const contentVal = (row?.content || content || "").trim();
-    if (!titleVal && !contentVal) return toast.error("Nothing to push. Provide a title or content.");
+    const titleVal = (row?.title || message || "").trim();
+    const contentVal = (row?.content || message || "").trim();
+    if (!titleVal && !contentVal) return toast.error("Nothing to push. Provide a message.");
 
     // Save to DB first so it shows under Existing
     try {
@@ -128,13 +126,9 @@ const News = () => {
           </CardHeader>
           <CardContent>
             <form onSubmit={createNews} className="grid grid-cols-1 md:grid-cols-6 gap-4">
-              <div>
-                <Label>Title</Label>
-                <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Headline" />
-              </div>
-              <div className="md:col-span-2">
-                <Label>Content</Label>
-                <Input value={content} onChange={(e) => setContent(e.target.value)} placeholder="Ticker text" />
+              <div className="md:col-span-3">
+                <Label>Message</Label>
+                <Input value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Text to display on screens" />
               </div>
               <div>
                 <Label>Target Depot</Label>
@@ -179,10 +173,7 @@ const News = () => {
           <CardContent className="space-y-3">
             {items.map((n) => (
               <div key={n.id} className="flex items-center justify-between border rounded-lg p-3">
-                <div>
-                  <div className="font-medium">{n.title || "Untitled"}</div>
-                  <div className="text-sm text-muted-foreground">{n.content}</div>
-                </div>
+                <div className="font-medium">{n.title || n.content || "Untitled"}</div>
                 <div className="flex items-center gap-3">
                   <span className="text-xs">Priority {n.priority}</span>
                   <div className="flex items-center gap-2">
