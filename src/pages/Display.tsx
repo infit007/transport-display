@@ -126,22 +126,12 @@ const Display = () => {
   }, [presetId]);
 
   useEffect(() => {
-    // Fetch media from media library based on deviceId
+    // Fetch media from media library based on deviceId (bus_number)
     const loadMediaFromLibrary = async () => {
       if (!deviceId) return;
       try {
         const { supabase } = await import("@/integrations/supabase/client");
-        
-        // Handle different deviceId formats
-        let busNumber = deviceId;
-        if (deviceId === "Bus 001") {
-          busNumber = "UK07PA0001"; // Map to actual bus number
-        } else if (deviceId === "Bus 002") {
-          busNumber = "UK07PA0002";
-        } else if (deviceId === "Bus 003") {
-          busNumber = "UK07PA0003";
-        }
-        
+        const busNumber = deviceId;
         console.log("Looking for bus with number:", busNumber);
         
         // First get the bus ID from bus_number
@@ -223,17 +213,7 @@ const Display = () => {
   useEffect(() => {
     const loadBus = async () => {
       if (!deviceId) return;
-      
-      // Handle different deviceId formats
-      let busNumber = deviceId;
-      if (deviceId === "Bus 001") {
-        busNumber = "UK07PA0001"; // Map to actual bus number
-      } else if (deviceId === "Bus 002") {
-        busNumber = "UK07PA0002";
-      } else if (deviceId === "Bus 003") {
-        busNumber = "UK07PA0003";
-      }
-      
+      const busNumber = deviceId;
       console.log("Loading bus data for:", busNumber);
       
       const { supabase } = await import("@/integrations/supabase/client");
