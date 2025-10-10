@@ -106,11 +106,9 @@ const Media = () => {
   const handleFileUpload = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!mediaName.trim()) {
-      toast.error("Please enter a media name");
-      return;
-    }
-
+    // Use filename if no name provided
+    const finalMediaName = mediaName.trim() || (selectedFile ? selectedFile.name : 'Video Link');
+    
     if (!selectedFile && !videoLink.trim()) {
       toast.error("Please select a file or enter a video link");
       return;
@@ -157,7 +155,7 @@ const Media = () => {
       const { error: insertError } = await supabase
         .from('media_library')
         .insert([{
-          name: mediaName.trim(),
+          name: finalMediaName,
           type: mediaType,
           url: mediaUrl,
           bus_id: selectedBus === "none" ? null : selectedBus || null,
@@ -282,10 +280,9 @@ const Media = () => {
                     <Label htmlFor="media-name">Media Name</Label>
                     <Input
                       id="media-name"
-                      placeholder="e.g., Promotional Video"
+                      placeholder="e.g., Promotional Video (optional - will use filename if empty)"
                       value={mediaName}
                       onChange={(e) => setMediaName(e.target.value)}
-                      required
                     />
                   </div>
 

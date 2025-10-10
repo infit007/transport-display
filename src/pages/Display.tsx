@@ -45,25 +45,33 @@ const Display = () => {
   const [position, setPosition] = useState<{ lat: number; lng: number }>({ lat: initialLat, lng: initialLng });
   const [mapZoom] = useState<number>(initialZoom);
   const [nextStop, setNextStop] = useState<string>(initialNext);
-  const [videoUrl] = useState<string>(initialVideo);
+  const [videoUrl, setVideoUrl] = useState<string>(initialVideo);
   const [destination, setDestination] = useState<string>(initialDestination);
   const [trail, setTrail] = useState<Array<[number, number]>>([[initialLat, initialLng]]);
   const [plannedRoute, setPlannedRoute] = useState<Array<[number, number]>>([]);
   const [startPoint, setStartPoint] = useState<string>("");
   const [endPoint, setEndPoint] = useState<string>("");
+  const [mediaFromLibrary, setMediaFromLibrary] = useState<{url: string, type: 'file' | 'link'} | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const playerRef = useRef<ReturnType<typeof videojs> | null>(null);
 
   // Detect YouTube links and build an embeddable URL
-  const isYouTube = useMemo(() => !!ytIdParam || /(?:youtu\.be\/|youtube\.com\/)/i.test(videoUrl.trim()), [ytIdParam, videoUrl]);
+  const currentVideoUrl = mediaFromLibrary?.url || videoUrl;
+  const isYouTube = useMemo(() => {
+    if (mediaFromLibrary?.type === 'link') {
+      return /(?:youtu\.be\/|youtube\.com\/)/i.test(mediaFromLibrary.url);
+    }
+    return !!ytIdParam || /(?:youtu\.be\/|youtube\.com\/)/i.test(videoUrl.trim());
+  }, [ytIdParam, videoUrl, mediaFromLibrary]);
+  
   const youTubeEmbedUrl = useMemo(() => {
     if (!isYouTube) return "";
     try {
       const id = ytIdParam
         ? ytIdParam
         : (() => {
-            const url = new URL(videoUrl.trim());
+            const url = new URL(currentVideoUrl.trim());
             if (url.hostname.includes("youtu.be")) return url.pathname.slice(1);
             return url.searchParams.get("v") || "";
           })();
@@ -72,7 +80,7 @@ const Display = () => {
     } catch {
       return "";
     }
-  }, [isYouTube, videoUrl, ytIdParam]);
+  }, [isYouTube, currentVideoUrl, ytIdParam]);
 
   useEffect(() => {
     // If presetId is provided, fetch preset from Supabase and override local state
@@ -103,6 +111,73 @@ const Display = () => {
     };
     loadPreset();
   }, [presetId]);
+
+  useEffect(() => {
+    // Fetch media from media library based on deviceId
+    const loadMediaFromLibrary = async () => {
+      if (!deviceId) return;
+      try {
+        const { supabase } = await import("@/integrations/supabase/client");
+        
+        // Handle different deviceId formats
+        let busNumber = deviceId;
+        if (deviceId === "Bus 001") {
+          busNumber = "UK07PA0001"; // Map to actual bus number
+        } else if (deviceId === "Bus 002") {
+          busNumber = "UK07PA0002";
+        } else if (deviceId === "Bus 003") {
+          busNumber = "UK07PA0003";
+        }
+        
+        console.log("Looking for bus with number:", busNumber);
+        
+        // First get the bus ID from bus_number
+        const { data: busData, error: busError } = await (supabase as any)
+          .from("buses")
+          .select("id, bus_number")
+          .eq("bus_number", busNumber)
+          .maybeSingle();
+
+        if (busError) {
+          console.log("Error fetching bus:", busError.message);
+          return;
+        }
+
+        if (!busData) {
+          console.log("No bus found with number:", busNumber);
+          return;
+        }
+
+        console.log("Found bus:", busData);
+
+        const { data, error } = await (supabase as any)
+          .from("media_library")
+          .select("url, type")
+          .eq("bus_id", busData.id)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (error) {
+          console.log("Media library not available or no media found:", error.message);
+          return;
+        }
+
+        if (data) {
+          console.log("Found media from library:", data);
+          setMediaFromLibrary({ url: data.url, type: data.type });
+          // Update video URL to use the media from library
+          setVideoUrl(data.url);
+        } else {
+          console.log("No media found for bus:", busData.bus_number);
+        }
+      } catch (error) {
+        console.log("Error fetching media from library:", error);
+        // ignore errors - fallback to URL parameters
+      }
+    };
+    loadMediaFromLibrary();
+  }, [deviceId]);
 
   useEffect(() => {
     // Socket wiring
@@ -214,7 +289,7 @@ const Display = () => {
       loop: true,
       sources: [
         {
-          src: videoUrl,
+          src: currentVideoUrl,
           type: "video/mp4",
         },
       ],
@@ -223,7 +298,7 @@ const Display = () => {
       playerRef.current?.dispose();
       playerRef.current = null;
     };
-  }, [isYouTube, videoUrl]);
+  }, [isYouTube, currentVideoUrl]);
 
   return (
     <KioskLayout>
