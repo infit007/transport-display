@@ -77,23 +77,36 @@ const News = () => {
     loadNews();
   };
 
-  const pushNow = (row?: Partial<NewsRow>) => {
-    const payload = {
-      title: (row?.title || title || "").trim(),
-      content: (row?.content || content || "").trim(),
+  const pushNow = async (row?: Partial<NewsRow>) => {
+    const titleVal = (row?.title || title || "").trim();
+    const contentVal = (row?.content || content || "").trim();
+    if (!titleVal && !contentVal) return toast.error("Nothing to push. Provide a title or content.");
+
+    // Save to DB first so it shows under Existing
+    try {
+      const { error } = await (supabase as any).from("news_feeds").insert([
+        { title: titleVal, content: contentVal, priority, is_active: true }
+      ]);
+      if (error) {
+        // Still allow push even if save fails
+        console.log("Save failed, pushing anyway:", error.message);
+      } else {
+        loadNews();
+      }
+    } catch (e) {
+      // ignore save errors, proceed to push
+    }
+
+    if (!socketRef.current) return toast.error("Push channel not connected.");
+    socketRef.current.emit("news:push", {
+      title: titleVal,
+      content: contentVal,
       targets: {
         deviceIds: targetBusNumber ? [targetBusNumber] : [],
         depots: targetDepot ? [targetDepot] : [],
       }
-    };
-    if (!payload.title && !payload.content) {
-      return toast.error("Nothing to push. Provide a title or content.");
-    }
-    if (!socketRef.current) {
-      return toast.error("Push channel not connected.");
-    }
-    socketRef.current.emit("news:push", payload);
-    toast.success("Pushed to displays");
+    });
+    toast.success("Saved (if permitted) and pushed to displays");
   };
 
   return (
