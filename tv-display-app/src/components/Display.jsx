@@ -3,25 +3,26 @@ import { getContent, openSocket } from '../services/api';
 import { supabase } from '../services/supabase';
 import { getDeviceId, getToken, logout } from '../services/auth';
 
-const Display = () => {
+const Display = ({ busNumber, depot }) => {
   const deviceId = getDeviceId();
-  const selectedBusNumber = localStorage.getItem('tv_bus_number') || '';
-  const selectedDepot = localStorage.getItem('tv_depot') || '';
+  const selectedBusNumber = busNumber || localStorage.getItem('tv_bus_number') || '';
+  const selectedDepot = depot || localStorage.getItem('tv_depot') || '';
   const [items, setItems] = useState([]);
-  const [ticker, setTicker] = useState('');
+  const [ticker, setTicker] = useState('Welcome to FleetSignage TV Display');
   const timerRef = useRef(null);
 
   const load = async () => {
     try {
       const res = await getContent(deviceId);
       setItems(res?.items || []);
-      setTicker(res?.ticker || '');
+      setTicker(res?.ticker || 'Welcome to FleetSignage TV Display');
     } catch (e) {
-      // token invalid or other error
-      if (e?.response?.status === 401) {
-        logout();
-        window.location.reload();
-      }
+      // If no backend, show demo content
+      console.log('No backend available, showing demo content');
+      setItems([
+        { type: 'text', text: `Bus: ${selectedBusNumber || 'Not selected'}\nDepot: ${selectedDepot || 'Not selected'}` },
+        { type: 'text', text: 'Demo Content - Configure your CMS backend' }
+      ]);
     }
   };
 
