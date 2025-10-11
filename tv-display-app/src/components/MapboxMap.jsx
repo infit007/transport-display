@@ -15,7 +15,7 @@ const MapboxMap = ({
 
   // You'll need to get a free Mapbox access token from https://mapbox.com
   // For now, using a demo token - replace with your own
-  const MAPBOX_ACCESS_TOKEN = 'pk.eyJ1IjoibWFwYm94IiwiYSI6ImNpejY4NXVycTA2emYycXBndHRqcmZ3N3gifQ.rJcFIG214AriISLbB6B5aw';
+  const MAPBOX_ACCESS_TOKEN = 'pk.eyJ1IjoicGFya2Vhc2UxIiwiYSI6ImNtNGN1M3pmZzBkdWoja3M4OGFydjgzMzUifQ.wbsW51a7zFMq0yz0SeV6_A';
 
   useEffect(() => {
     if (map.current) return; // Initialize map only once
