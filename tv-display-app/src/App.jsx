@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import screenfull from 'screenfull';
 import BusSelector from './components/BusSelector';
 import Display from './components/Display';
+import SupabaseConfig from './components/SupabaseConfig';
+import { supabase } from './services/supabase';
 
 const App = () => {
   const [step, setStep] = useState('loading');
@@ -12,6 +14,16 @@ const App = () => {
     console.log('App useEffect running');
     // Add a small delay to ensure proper initialization
     const timer = setTimeout(() => {
+      // Check if Supabase is configured
+      const hasSupabaseConfig = supabase !== null;
+      console.log('Supabase configured:', hasSupabaseConfig);
+      
+      if (!hasSupabaseConfig) {
+        console.log('Setting step to supabase-config');
+        setStep('supabase-config');
+        return;
+      }
+      
       // Check if we have bus/depot info
       const hasBus = localStorage.getItem('tv_bus_number');
       const hasDepot = localStorage.getItem('tv_depot');
@@ -47,6 +59,13 @@ const App = () => {
         </div>
       </div>
     );
+  }
+
+  if (step === 'supabase-config') {
+    return <SupabaseConfig onConfigured={() => {
+      console.log('Supabase configured, refreshing...');
+      window.location.reload();
+    }} />;
   }
 
   if (step === 'bus-selector') {
