@@ -1,13 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Get Supabase credentials from environment variables or localStorage
-// This should match your main app's Supabase configuration
-const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL || 
-                     window.localStorage.getItem('TV_SUPABASE_URL') || 
+// Get Supabase credentials from localStorage or default URL
+// Note: Environment variables are not available in browser builds
+const SUPABASE_URL = window.localStorage.getItem('TV_SUPABASE_URL') || 
                      'https://eunaapesqbukbsrbgwna.supabase.co';
 
-const SUPABASE_ANON = process.env.REACT_APP_SUPABASE_PUBLISHABLE_KEY || 
-                      window.localStorage.getItem('TV_SUPABASE_ANON') || 
+const SUPABASE_ANON = window.localStorage.getItem('TV_SUPABASE_ANON') || 
                       null; // Will be null if not configured
 
 console.log('Supabase URL:', SUPABASE_URL);

@@ -3,7 +3,8 @@ import { io } from 'socket.io-client';
 import { getToken } from './auth';
 
 // Get base URL with fallback to localhost if not specified
-const RAW_BASE = window.localStorage.getItem('CMS_BASE_URL') || process.env.CMS_BASE_URL || 'http://localhost:4000';
+// Note: Environment variables are not available in browser builds
+const RAW_BASE = window.localStorage.getItem('CMS_BASE_URL') || 'http://localhost:4000';
 const BASE_URL = RAW_BASE ? RAW_BASE.replace(/\/$/, '') : '';
 
 console.log('API connecting to:', BASE_URL || 'No backend URL configured');
