@@ -96,8 +96,12 @@ const Display = ({ busNumber, depot }) => {
         try {
           // First get the bus data to get the bus ID
           const busData = await tvDisplayAPI.getBusByNumber(selectedBusNumber);
+          console.log('Bus data:', busData);
+          
           if (busData && busData.id) {
             const mediaData = await tvDisplayAPI.getMediaForBus(busData.id);
+            console.log('Bus-specific media data:', mediaData);
+            
             if (mediaData && mediaData.length > 0) {
               media = mediaData[0];
               console.log('Loaded bus-specific media:', media);
@@ -112,8 +116,12 @@ const Display = ({ busNumber, depot }) => {
       if (!media) {
         try {
           const mediaData = await tvDisplayAPI.getMedia();
+          console.log('All media data:', mediaData);
+          
           if (mediaData && mediaData.length > 0) {
-            media = mediaData[0];
+            // Find media that matches the current bus or just use the first one
+            const busSpecificMedia = mediaData.find(m => m.bus_id && selectedBusNumber);
+            media = busSpecificMedia || mediaData[0];
             console.log('Loaded general media:', media);
           }
         } catch (error) {
@@ -122,8 +130,10 @@ const Display = ({ busNumber, depot }) => {
       }
 
       if (media) {
+        console.log('Setting media content:', media);
         setMediaContent(media);
       } else {
+        console.log('No media found, using demo fallback');
         // Demo fallback - use video for better demo
         setMediaContent({
           type: 'video',
