@@ -27,12 +27,12 @@ const Display = () => {
   const searchParams = useMemo(() => new URLSearchParams(window.location.search), []);
   const presetId = searchParams.get("presetId");
   const deviceId = searchParams.get("deviceId");
-  const initialLat = Number(searchParams.get("lat") || 1.2921);
-  const initialLng = Number(searchParams.get("lng") || 36.8219);
+  const initialLat = Number(searchParams.get("lat") || 29.2138);
+  const initialLng = Number(searchParams.get("lng") || 78.9568);
   const initialZoom = Number(searchParams.get("zoom") || 14);
-  const initialNews = searchParams.get("news") || "Welcome to FleetSignage";
-  const initialNext = searchParams.get("nextStop") || "Central Station";
-  const initialDestination = searchParams.get("destination") || "Terminal";
+  const initialNews = searchParams.get("news") || "Welcome to FleetSignage TV Display - Demo Mode";
+  const initialNext = searchParams.get("nextStop") || "";
+  const initialDestination = searchParams.get("destination") || "";
   const showRoute = ["1","true","yes"].includes((searchParams.get("showRoute") || "").toLowerCase());
   const showTrail = ["1","true","yes"].includes((searchParams.get("showTrail") || "").toLowerCase());
   const useOsrm = ["1","true","yes"].includes((searchParams.get("osrm") || "").toLowerCase());
@@ -134,16 +134,8 @@ const Display = () => {
       try {
         const { supabase } = await import("@/integrations/supabase/client");
         
-        // Handle different deviceId formats
-        let busNumber = deviceId;
-        if (deviceId === "Bus 001") {
-          busNumber = "UK07PA0001"; // Map to actual bus number
-        } else if (deviceId === "Bus 002") {
-          busNumber = "UK07PA0002";
-        } else if (deviceId === "Bus 003") {
-          busNumber = "UK07PA0003";
-        }
-        setResolvedBusNumber(busNumber);
+        // Use deviceId directly as bus number
+        const busNumber = deviceId;
         
         console.log("Looking for bus with number:", busNumber);
         
@@ -275,15 +267,8 @@ const Display = () => {
     const loadBus = async () => {
       if (!deviceId) return;
       
-      // Handle different deviceId formats
-      let busNumber = deviceId;
-      if (deviceId === "Bus 001") {
-        busNumber = "UK07PA0001"; // Map to actual bus number
-      } else if (deviceId === "Bus 002") {
-        busNumber = "UK07PA0002";
-      } else if (deviceId === "Bus 003") {
-        busNumber = "UK07PA0003";
-      }
+      // Use deviceId directly as bus number - no need for mapping
+      const busNumber = deviceId;
       setResolvedBusNumber(busNumber);
       
       console.log("Loading bus data for:", busNumber);
@@ -314,6 +299,25 @@ const Display = () => {
         }
       } else {
         console.log("No bus found with number:", busNumber);
+        // If no bus found, try to load any active bus as fallback
+        const { data: fallbackData } = await (supabase as any)
+          .from("buses")
+          .select("bus_number, start_point, end_point, route_name, driver_name, conductor_name, gps_latitude, gps_longitude, depo")
+          .eq("status", "active")
+          .limit(1)
+          .maybeSingle();
+          
+        if (fallbackData) {
+          console.log("Using fallback bus data:", fallbackData);
+          if (fallbackData.start_point) setStartPoint(fallbackData.start_point);
+          if (fallbackData.end_point) setEndPoint(fallbackData.end_point);
+          if (fallbackData.start_point) setNextStop(fallbackData.start_point);
+          if (fallbackData.end_point) setDestination(fallbackData.end_point);
+          if (fallbackData.depo) setBusDepot(fallbackData.depo);
+          if (fallbackData.gps_latitude && fallbackData.gps_longitude) {
+            setPosition({ lat: fallbackData.gps_latitude, lng: fallbackData.gps_longitude });
+          }
+        }
       }
 
       // live subscription
