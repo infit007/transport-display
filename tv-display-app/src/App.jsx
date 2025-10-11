@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import screenfull from 'screenfull';
 import BusSelector from './components/BusSelector';
 import Display from './components/Display';
-import { supabase } from './services/supabase';
 
 const App = () => {
   const [step, setStep] = useState('loading');
@@ -18,7 +17,6 @@ const App = () => {
       const hasDepot = localStorage.getItem('tv_depot');
       
       console.log('Checking localStorage:', { hasBus, hasDepot });
-      console.log('Supabase configured:', supabase !== null);
       
       if (!hasBus && !hasDepot) {
         console.log('Setting step to bus-selector');

@@ -20,6 +20,29 @@ router.get('/', authenticate, async (_req, res) => {
   return res.json(data);
 });
 
+// Public endpoint for TV Display App (no auth required)
+router.get('/public', async (_req, res) => {
+  const { data, error } = await supabase
+    .from('media_library')
+    .select('url, type, name, bus_id')
+    .order('created_at', { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json(data);
+});
+
+// Public endpoint to get media for specific bus
+router.get('/public/bus/:busId', async (req, res) => {
+  const { busId } = req.params;
+  const { data, error } = await supabase
+    .from('media_library')
+    .select('url, type, name, bus_id')
+    .eq('bus_id', busId)
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json(data);
+});
+
 router.post('/upload', authenticate, requireRole('admin', 'operator'), upload.single('file'), async (req, res) => {
   try {
     const { title, type } = req.body;

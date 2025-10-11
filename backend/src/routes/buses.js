@@ -11,6 +11,28 @@ router.get('/', authenticate, async (_req, res) => {
   return res.json(data);
 });
 
+// Public endpoint for TV Display App (no auth required)
+router.get('/public', async (_req, res) => {
+  const { data, error } = await supabase
+    .from('buses')
+    .select('bus_number, route_name, start_point, end_point, depo, gps_latitude, gps_longitude, status')
+    .order('created_at', { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json(data);
+});
+
+// Public endpoint to get specific bus by number
+router.get('/public/:busNumber', async (req, res) => {
+  const { busNumber } = req.params;
+  const { data, error } = await supabase
+    .from('buses')
+    .select('bus_number, route_name, start_point, end_point, depo, gps_latitude, gps_longitude, status')
+    .eq('bus_number', busNumber)
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json(data);
+});
+
 router.post('/', authenticate, requireRole('admin', 'operator'), async (req, res) => {
   const { bus_number, route_name, status } = req.body;
   const { error, data } = await supabase.from('buses').insert([{ bus_number, route_name, status }]).select('*').single();
