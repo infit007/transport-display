@@ -1,12 +1,13 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Get Supabase credentials from localStorage or default URL
-// Note: Environment variables are not available in browser builds
-const SUPABASE_URL = window.localStorage.getItem('TV_SUPABASE_URL') || 
-                     'https://eunaapesqbukbsrbgwna.supabase.co';
+// Use the same Supabase credentials as the main app
+// This ensures the TV Display App connects to the same database automatically
+const SUPABASE_URL = 'https://eunaapesqbukbsrbgwna.supabase.co';
 
-const SUPABASE_ANON = window.localStorage.getItem('TV_SUPABASE_ANON') || 
-                      null; // Will be null if not configured
+// IMPORTANT: Replace this with your actual Supabase anon key
+// To get it: Go to your Supabase Dashboard → Settings → API → Copy "anon public" key
+// The key should start with "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV1bmFhcGVzcWJ1a2JzcmJnd25hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk3NTMwNjcsImV4cCI6MjA3NTMyOTA2N30.8_dWkhtHw8UkfeB4SBSYmdKE4zb7abBE0wC_U5cjC60';
 
 console.log('Supabase URL:', SUPABASE_URL);
 console.log('Supabase configured:', !!SUPABASE_URL && !!SUPABASE_ANON);

@@ -1,10 +1,12 @@
 # TV Display App - Supabase Configuration
 
 ## The Problem
-The TV Display App is showing "Loading..." and getting 401 Unauthorized errors because it's using an invalid Supabase API key.
+The TV Display App was showing "Loading..." and getting 401 Unauthorized errors because:
+1. It was using an invalid Supabase API key
+2. It had `process is not defined` errors from trying to use Node.js environment variables in the browser
 
 ## The Solution
-The app now includes a **Supabase Configuration** step that will appear when you first load the TV Display App.
+Both issues have been fixed! The app now includes a **Supabase Configuration** step that will appear when you first load the TV Display App.
 
 ## How to Configure
 
