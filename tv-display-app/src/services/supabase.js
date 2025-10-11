@@ -16,6 +16,13 @@ console.log('Supabase configured:', !!SUPABASE_URL && !!SUPABASE_ANON);
 export const supabase = SUPABASE_URL && SUPABASE_ANON && !SUPABASE_ANON.includes('placeholder')
   ? createClient(SUPABASE_URL, SUPABASE_ANON, { 
       auth: { persistSession: false },
+      global: {
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          'apikey': SUPABASE_ANON
+        }
+      },
       realtime: {
         params: {
           eventsPerSecond: 10
