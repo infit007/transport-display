@@ -12,8 +12,69 @@ const Display = ({ busNumber, depot }) => {
   const [finalDestination, setFinalDestination] = useState('');
   const [ticker, setTicker] = useState('Welcome to FleetSignage TV Display');
   const [mediaContent, setMediaContent] = useState(null);
+  const [journeyProgress, setJourneyProgress] = useState(0); // 0 to 1
   
   const timerRef = useRef(null);
+  const journeyRef = useRef(null);
+
+  // GPS Journey Simulation
+  const startJourneySimulation = (startPoint, endPoint) => {
+    if (!startPoint || !endPoint) return;
+    
+    console.log('Starting journey simulation from', startPoint, 'to', endPoint);
+    
+    // Clear any existing journey
+    if (journeyRef.current) {
+      clearInterval(journeyRef.current);
+    }
+    
+    // Define route coordinates (simplified linear interpolation)
+    const routeCoordinates = [
+      { lat: 29.2138, lng: 78.9568, name: startPoint }, // Start
+      { lat: 29.2500, lng: 79.0000, name: 'Mid Point 1' },
+      { lat: 29.3000, lng: 79.0500, name: 'Mid Point 2' },
+      { lat: 29.3500, lng: 79.1000, name: 'Mid Point 3' },
+      { lat: 29.4000, lng: 79.1500, name: endPoint } // End
+    ];
+    
+    let currentIndex = 0;
+    let progress = 0;
+    
+    journeyRef.current = setInterval(() => {
+      if (currentIndex >= routeCoordinates.length - 1) {
+        // Journey complete, restart
+        currentIndex = 0;
+        progress = 0;
+        setJourneyProgress(0);
+      }
+      
+      const currentCoord = routeCoordinates[currentIndex];
+      const nextCoord = routeCoordinates[currentIndex + 1];
+      
+      // Interpolate between current and next coordinates
+      const interpolatedLat = currentCoord.lat + (nextCoord.lat - currentCoord.lat) * progress;
+      const interpolatedLng = currentCoord.lng + (nextCoord.lng - currentCoord.lng) * progress;
+      
+      setCurrentLocation({ lat: interpolatedLat, lng: interpolatedLng });
+      
+      // Update next stop based on progress
+      if (progress < 0.5) {
+        setNextStop(nextCoord.name);
+      } else if (currentIndex < routeCoordinates.length - 2) {
+        setNextStop(routeCoordinates[currentIndex + 2].name);
+      } else {
+        setNextStop(endPoint);
+      }
+      
+      progress += 0.02; // Move 2% per update
+      setJourneyProgress(progress);
+      
+      if (progress >= 1) {
+        currentIndex++;
+        progress = 0;
+      }
+    }, 1000); // Update every second
+  };
 
   // Load bus data from backend API
   const loadBusData = async () => {
@@ -56,17 +117,14 @@ const Display = ({ busNumber, depot }) => {
         setNextStop(busData.start_point || 'Loading...');
         setFinalDestination(busData.end_point || 'Loading...');
         
-        // Set real GPS coordinates if available
-        if (busData.gps_latitude && busData.gps_longitude) {
-          setCurrentLocation({ 
-            lat: parseFloat(busData.gps_latitude), 
-            lng: parseFloat(busData.gps_longitude) 
-          });
-          console.log('GPS coordinates:', busData.gps_latitude, busData.gps_longitude);
-        } else {
-          // Fallback coordinates
-          setCurrentLocation({ lat: 29.2138, lng: 78.9568 });
+        // Start journey simulation
+        if (busData.start_point && busData.end_point) {
+          startJourneySimulation(busData.start_point, busData.end_point);
         }
+        
+        // Set initial GPS coordinates
+        setCurrentLocation({ lat: 29.2138, lng: 78.9568 });
+        console.log('Started journey simulation for:', busData.start_point, 'to', busData.end_point);
       }
     } catch (error) {
       console.error('Error loading bus data:', error);
@@ -131,13 +189,21 @@ const Display = ({ busNumber, depot }) => {
 
       if (media) {
         console.log('Setting media content:', media);
-        setMediaContent(media);
+        // Ensure we have the correct media type
+        const mediaToSet = {
+          type: media.type || 'video',
+          url: media.url,
+          name: media.name || 'Media'
+        };
+        console.log('Processed media:', mediaToSet);
+        setMediaContent(mediaToSet);
       } else {
         console.log('No media found, using demo fallback');
         // Demo fallback - use video for better demo
         setMediaContent({
           type: 'video',
-          url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4'
+          url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+          name: 'Demo Video'
         });
       }
     } catch (error) {
@@ -185,6 +251,9 @@ const Display = ({ busNumber, depot }) => {
 
     return () => {
       clearInterval(timerRef.current);
+      if (journeyRef.current) {
+        clearInterval(journeyRef.current);
+      }
     };
   }, [selectedBusNumber]);
 
@@ -196,6 +265,7 @@ const Display = ({ busNumber, depot }) => {
       <div className="main-content">
         {/* Left Panel - Media Display */}
         <div className="media-panel">
+          {console.log('Rendering media:', mediaContent)}
           {mediaContent?.type === 'video' ? (
             <video 
               src={mediaContent.url} 
@@ -204,12 +274,16 @@ const Display = ({ busNumber, depot }) => {
               muted 
               loop 
               playsInline 
+              onError={(e) => console.error('Video load error:', e)}
+              onLoadStart={() => console.log('Video loading started')}
+              onCanPlay={() => console.log('Video can play')}
             />
           ) : (
             <img 
               src={mediaContent?.url || 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=1920&h=1080&fit=crop&crop=center'} 
               className="media-content"
               alt="Display content"
+              onError={(e) => console.error('Image load error:', e)}
             />
           )}
         </div>
