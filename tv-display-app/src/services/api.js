@@ -14,10 +14,13 @@ class TVDisplayAPI {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
       },
+      mode: 'cors', // Explicitly set CORS mode
+      credentials: 'omit', // Don't send credentials for now
       ...options,
     };
 
     try {
+      console.log(`Making API request to: ${url}`);
       const response = await fetch(url, config);
       
       if (!response.ok) {
@@ -27,6 +30,14 @@ class TVDisplayAPI {
       return await response.json();
     } catch (error) {
       console.error(`API request failed for ${endpoint}:`, error);
+      
+      // If it's a CORS error, provide more helpful information
+      if (error.message.includes('Failed to fetch') || error.message.includes('CORS')) {
+        console.error('CORS Error: The backend needs to allow requests from this domain');
+        console.error('Backend URL:', this.baseURL);
+        console.error('Request URL:', url);
+      }
+      
       throw error;
     }
   }

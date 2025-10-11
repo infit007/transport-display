@@ -25,7 +25,7 @@ const News = () => {
   const [isActive, setIsActive] = useState<boolean>(true);
   const [items, setItems] = useState<NewsRow[]>([]);
   const socketRef = useRef<Socket | null>(null);
-  const backendUrl = useMemo(() => import.meta.env.VITE_BACKEND_URL || "http://localhost:4000", []);
+  const backendUrl = useMemo(() => import.meta.env.VITE_BACKEND_URL || "https://transport-display.onrender.com", []);
   const uttarakhandDepots = [
     "Dehradun Depot","Haridwar Depot","Rishikesh Depot","Roorkee Depot","Haldwani Depot","Nainital Depot","Almora Depot","Ranikhet Depot","Pithoragarh Depot","Champawat Depot","Bageshwar Depot","Kausani Depot","Tanakpur Depot","Khatima Depot","Kashipur Depot","Rudrapur Depot","Sitarganj Depot","Jaspur Depot","Bazpur Depot","Mussoorie Depot","Vikasnagar Depot","Doiwala Depot","Pauri Depot","Kotdwar Depot","Srinagar (Garhwal) Depot","Devprayag Depot","Tehri Depot","New Tehri Depot","Uttarkashi Depot","Joshimath Depot","Gopeshwar (Chamoli) Depot","Rudraprayag Depot","Lansdowne Depot","Kichha Depot"
   ];

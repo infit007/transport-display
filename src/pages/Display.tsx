@@ -190,7 +190,7 @@ const Display = () => {
 
   useEffect(() => {
     // Socket wiring
-    const endpoint = import.meta.env.VITE_BACKEND_URL || "http://localhost:4000";
+    const endpoint = import.meta.env.VITE_BACKEND_URL || "https://transport-display.onrender.com";
     socketRef.current = io(endpoint, { transports: ["websocket"], autoConnect: true });
     socketRef.current.on("news:broadcast", (payload: { title?: string; content?: string; targets?: { deviceIds?: string[]; depots?: string[] } }) => {
       // Targeting logic: if targets present, must match

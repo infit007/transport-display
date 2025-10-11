@@ -23,7 +23,7 @@ const GpsSimulator = () => {
   const timer = useRef<number | null>(null);
   const socketRef = useRef<Socket | null>(null);
 
-  const endpoint = useMemo(() => import.meta.env.VITE_BACKEND_URL || "http://localhost:4000", []);
+  const endpoint = useMemo(() => import.meta.env.VITE_BACKEND_URL || "https://transport-display.onrender.com", []);
 
   useEffect(() => {
     socketRef.current = io(endpoint, { transports: ["websocket"], autoConnect: true });

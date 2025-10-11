@@ -14,12 +14,15 @@ const app = express();
 const server = http.createServer(app);
 const io = new SocketIOServer(server, {
   cors: {
-    origin: process.env.CORS_ORIGIN?.split(',') || ['http://localhost:8080'],
+    origin: true, // Allow all origins for now
     credentials: true,
   },
 });
 
-app.use(cors({ origin: process.env.CORS_ORIGIN?.split(',') || ['http://localhost:8080'] }));
+app.use(cors({ 
+  origin: true, // Allow all origins for now
+  credentials: true
+}));
 app.use(express.json());
 
 // Validate required env vars early with friendly messages
