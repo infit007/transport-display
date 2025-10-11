@@ -1,6 +1,7 @@
 const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const { InjectManifest } = require('workbox-webpack-plugin');
+const CopyWebpackPlugin = require('copy-webpack-plugin');
 const webpack = require('webpack');
 
 // Only include the InjectManifest plugin in production mode
@@ -40,6 +41,12 @@ module.exports = {
   resolve: { extensions: ['.js', '.jsx'] },
   plugins: [
     new HtmlWebpackPlugin({ template: 'public/index.html' }),
+    new CopyWebpackPlugin({
+      patterns: [
+        { from: 'public/manifest.json', to: 'manifest.json' },
+        { from: 'public/icon-*.png', to: '[name][ext]' }
+      ]
+    }),
     // Only include InjectManifest in production mode to avoid watch mode issues
     ...(isProduction ? [
       new InjectManifest({ 
