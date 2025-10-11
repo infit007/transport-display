@@ -15,7 +15,7 @@ const Display = ({ busNumber, depot }) => {
   
   const timerRef = useRef(null);
 
-  // Load bus data from Supabase
+  // Load bus data from Supabase with real-time GPS
   const loadBusData = async () => {
     if (!supabase) {
       console.log('Supabase not configured, using demo data');
@@ -35,7 +35,7 @@ const Display = ({ busNumber, depot }) => {
     }
 
     try {
-      // Fetch bus data from Supabase
+      // Fetch bus data from Supabase with GPS coordinates
       const { data: buses, error } = await supabase
         .from('buses')
         .select('*')
@@ -48,12 +48,24 @@ const Display = ({ busNumber, depot }) => {
       }
 
       if (buses) {
+        console.log('Loaded bus data:', buses);
         setBusData(buses);
-        setNextStop(buses.current_location || buses.start_point || '');
-        setFinalDestination(buses.end_point || '');
         
-        // Set demo coordinates for current location
-        setCurrentLocation({ lat: 29.2138, lng: 78.9568 });
+        // Set next stop and destination from actual bus data
+        setNextStop(buses.start_point || 'Loading...');
+        setFinalDestination(buses.end_point || 'Loading...');
+        
+        // Set real GPS coordinates if available
+        if (buses.gps_latitude && buses.gps_longitude) {
+          setCurrentLocation({ 
+            lat: parseFloat(buses.gps_latitude), 
+            lng: parseFloat(buses.gps_longitude) 
+          });
+          console.log('GPS coordinates:', buses.gps_latitude, buses.gps_longitude);
+        } else {
+          // Fallback to demo coordinates
+          setCurrentLocation({ lat: 29.2138, lng: 78.9568 });
+        }
       } else {
         // Use demo data if bus not found
         setBusData({
@@ -63,8 +75,8 @@ const Display = ({ busNumber, depot }) => {
           end_point: 'Haridwar',
           current_location: 'Kashipur'
         });
-        setNextStop('Kashipur');
-        setFinalDestination('Jaspur');
+        setNextStop('Dehradun');
+        setFinalDestination('Haridwar');
         setCurrentLocation({ lat: 29.2138, lng: 78.9568 });
       }
     } catch (error) {
@@ -72,42 +84,76 @@ const Display = ({ busNumber, depot }) => {
     }
   };
 
-  // Load media content
+  // Load media content for specific bus/depot
   const loadMediaContent = async () => {
     if (!supabase) {
-      // Demo media content
+      // Demo media content - prioritize video for demo
       setMediaContent({
-        type: 'image',
-        url: 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=1920&h=1080&fit=crop&crop=center'
+        type: 'video',
+        url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4'
       });
       return;
     }
 
     try {
-      const { data: media, error } = await supabase
+      // First try to get media specific to the bus number
+      let query = supabase
         .from('media_content')
         .select('*')
-        .eq('is_active', true)
+        .eq('is_active', true);
+
+      // If we have a bus number, try to get media for that specific bus
+      if (selectedBusNumber) {
+        query = query.or(`target_buses.cs.{${selectedBusNumber}},target_depots.cs.{${selectedDepot}}`);
+      } else if (selectedDepot) {
+        // If no bus number but have depot, get media for that depot
+        query = query.contains('target_depots', [selectedDepot]);
+      }
+
+      const { data: media, error } = await query
         .order('created_at', { ascending: false })
         .limit(1)
         .single();
 
       if (error && error.code !== 'PGRST116') {
         console.error('Error fetching media:', error);
+        // Fallback to any active media
+        const { data: fallbackMedia } = await supabase
+          .from('media_content')
+          .select('*')
+          .eq('is_active', true)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single();
+        
+        if (fallbackMedia) {
+          setMediaContent(fallbackMedia);
+        } else {
+          // Final fallback to demo video
+          setMediaContent({
+            type: 'video',
+            url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4'
+          });
+        }
         return;
       }
 
       if (media) {
         setMediaContent(media);
       } else {
-        // Demo fallback
+        // Demo fallback - use video for better demo
         setMediaContent({
-          type: 'image',
-          url: 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=1920&h=1080&fit=crop&crop=center'
+          type: 'video',
+          url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4'
         });
       }
     } catch (error) {
       console.error('Error loading media:', error);
+      // Demo fallback
+      setMediaContent({
+        type: 'video',
+        url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4'
+      });
     }
   };
 
@@ -158,8 +204,29 @@ const Display = ({ busNumber, depot }) => {
     if (supabase) {
       const channel = supabase
         .channel('tv-updates')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'buses' }, (payload) => {
-          if (payload.new?.bus_number === selectedBusNumber) {
+        .on('postgres_changes', { 
+          event: '*', 
+          schema: 'public', 
+          table: 'buses',
+          filter: `bus_number=eq.${selectedBusNumber}`
+        }, (payload) => {
+          console.log('Bus location update received:', payload);
+          const bus = payload.new || payload.old;
+          if (bus && bus.bus_number === selectedBusNumber) {
+            // Update GPS coordinates in real-time
+            if (bus.gps_latitude && bus.gps_longitude) {
+              setCurrentLocation({ 
+                lat: parseFloat(bus.gps_latitude), 
+                lng: parseFloat(bus.gps_longitude) 
+              });
+              console.log('Updated GPS coordinates:', bus.gps_latitude, bus.gps_longitude);
+            }
+            
+            // Update other bus data
+            if (bus.start_point) setNextStop(bus.start_point);
+            if (bus.end_point) setFinalDestination(bus.end_point);
+            
+            // Reload full bus data
             loadBusData();
           }
         })
@@ -210,11 +277,29 @@ const Display = ({ busNumber, depot }) => {
 
         {/* Right Panel - Information */}
         <div className="info-panel">
+          {/* Bus Number Section */}
+          <div className="bus-number-section">
+            <div className="bus-label">BUS NUMBER</div>
+            <div className="bus-number">{selectedBusNumber || 'Not Set'}</div>
+            {selectedDepot && (
+              <div className="depot-info">Depot: {selectedDepot}</div>
+            )}
+          </div>
+
           {/* Map Section */}
           <div className="map-section">
             <div className="map-container">
               <div className="map-placeholder">
-                <div className="map-marker"></div>
+                <div className="map-marker" style={{
+                  left: currentLocation ? '50%' : '50%',
+                  top: currentLocation ? '50%' : '50%',
+                  backgroundColor: currentLocation ? '#00e0ff' : '#ff6b6b'
+                }}></div>
+                {currentLocation && (
+                  <div className="gps-coordinates">
+                    {currentLocation.lat.toFixed(4)}, {currentLocation.lng.toFixed(4)}
+                  </div>
+                )}
                 <div className="map-attribution">Leaflet | © OpenStreetMap contributors</div>
               </div>
             </div>
