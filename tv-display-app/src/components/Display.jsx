@@ -18,32 +18,55 @@ const Display = ({ busNumber, depot }) => {
   // Load bus data from Supabase with real-time GPS
   const loadBusData = async () => {
     if (!supabase) {
-      console.log('Supabase not configured, using demo data');
+      console.log('Supabase not configured, using fallback data');
+      // Try to load any active bus as fallback
       setBusData({
-        bus_number: selectedBusNumber || 'UK-01-A-1001',
-        route_name: 'Dehradun - Haridwar',
-        start_point: 'Dehradun',
-        end_point: 'Haridwar',
-        current_location: 'Kashipur',
-        next_stop: 'Kashipur',
-        final_destination: 'Jaspur'
+        bus_number: selectedBusNumber || 'UK-06-J-9102',
+        route_name: 'Kashipur - Jaspur',
+        start_point: 'Kashipur',
+        end_point: 'Jaspur',
+        depo: 'Kashipur Depot'
       });
       setNextStop('Kashipur');
       setFinalDestination('Jaspur');
-      setCurrentLocation({ lat: 29.2138, lng: 78.9568 }); // Kashipur coordinates
+      setCurrentLocation({ lat: 29.2138, lng: 78.9568 });
       return;
     }
 
     try {
+      console.log('Loading bus data for:', selectedBusNumber);
+      
       // Fetch bus data from Supabase with GPS coordinates
       const { data: buses, error } = await supabase
         .from('buses')
-        .select('*')
+        .select('bus_number, route_name, start_point, end_point, depo, gps_latitude, gps_longitude, status')
         .eq('bus_number', selectedBusNumber)
         .single();
 
       if (error && error.code !== 'PGRST116') {
         console.error('Error fetching bus data:', error);
+        // Try to load any active bus as fallback
+        const { data: fallbackBus } = await supabase
+          .from('buses')
+          .select('bus_number, route_name, start_point, end_point, depo, gps_latitude, gps_longitude, status')
+          .eq('status', 'active')
+          .limit(1)
+          .single();
+          
+        if (fallbackBus) {
+          console.log('Using fallback bus data:', fallbackBus);
+          setBusData(fallbackBus);
+          setNextStop(fallbackBus.start_point || 'Loading...');
+          setFinalDestination(fallbackBus.end_point || 'Loading...');
+          if (fallbackBus.gps_latitude && fallbackBus.gps_longitude) {
+            setCurrentLocation({ 
+              lat: parseFloat(fallbackBus.gps_latitude), 
+              lng: parseFloat(fallbackBus.gps_longitude) 
+            });
+          } else {
+            setCurrentLocation({ lat: 29.2138, lng: 78.9568 });
+          }
+        }
         return;
       }
 
@@ -63,21 +86,33 @@ const Display = ({ busNumber, depot }) => {
           });
           console.log('GPS coordinates:', buses.gps_latitude, buses.gps_longitude);
         } else {
-          // Fallback to demo coordinates
+          // Fallback coordinates
           setCurrentLocation({ lat: 29.2138, lng: 78.9568 });
         }
       } else {
-        // Use demo data if bus not found
-        setBusData({
-          bus_number: selectedBusNumber || 'UK-01-A-1001',
-          route_name: 'Demo Route',
-          start_point: 'Dehradun',
-          end_point: 'Haridwar',
-          current_location: 'Kashipur'
-        });
-        setNextStop('Dehradun');
-        setFinalDestination('Haridwar');
-        setCurrentLocation({ lat: 29.2138, lng: 78.9568 });
+        console.log('No bus found with number:', selectedBusNumber);
+        // Try to load any active bus as fallback
+        const { data: fallbackBus } = await supabase
+          .from('buses')
+          .select('bus_number, route_name, start_point, end_point, depo, gps_latitude, gps_longitude, status')
+          .eq('status', 'active')
+          .limit(1)
+          .single();
+          
+        if (fallbackBus) {
+          console.log('Using fallback bus data:', fallbackBus);
+          setBusData(fallbackBus);
+          setNextStop(fallbackBus.start_point || 'Loading...');
+          setFinalDestination(fallbackBus.end_point || 'Loading...');
+          if (fallbackBus.gps_latitude && fallbackBus.gps_longitude) {
+            setCurrentLocation({ 
+              lat: parseFloat(fallbackBus.gps_latitude), 
+              lng: parseFloat(fallbackBus.gps_longitude) 
+            });
+          } else {
+            setCurrentLocation({ lat: 29.2138, lng: 78.9568 });
+          }
+        }
       }
     } catch (error) {
       console.error('Error loading bus data:', error);
@@ -96,18 +131,26 @@ const Display = ({ busNumber, depot }) => {
     }
 
     try {
-      // First try to get media specific to the bus number
-      let query = supabase
-        .from('media_content')
-        .select('*')
-        .eq('is_active', true);
-
-      // If we have a bus number, try to get media for that specific bus
+      console.log('Loading media for bus:', selectedBusNumber);
+      
+      // First get the bus ID from bus_number
+      let busId = null;
       if (selectedBusNumber) {
-        query = query.or(`target_buses.cs.{${selectedBusNumber}},target_depots.cs.{${selectedDepot}}`);
-      } else if (selectedDepot) {
-        // If no bus number but have depot, get media for that depot
-        query = query.contains('target_depots', [selectedDepot]);
+        const { data: busData } = await supabase
+          .from('buses')
+          .select('id')
+          .eq('bus_number', selectedBusNumber)
+          .single();
+        busId = busData?.id;
+      }
+
+      // Try to get media specific to the bus
+      let query = supabase
+        .from('media_library')
+        .select('url, type, name');
+
+      if (busId) {
+        query = query.eq('bus_id', busId);
       }
 
       const { data: media, error } = await query
@@ -117,11 +160,10 @@ const Display = ({ busNumber, depot }) => {
 
       if (error && error.code !== 'PGRST116') {
         console.error('Error fetching media:', error);
-        // Fallback to any active media
+        // Fallback to any media
         const { data: fallbackMedia } = await supabase
-          .from('media_content')
-          .select('*')
-          .eq('is_active', true)
+          .from('media_library')
+          .select('url, type, name')
           .order('created_at', { ascending: false })
           .limit(1)
           .single();
@@ -139,6 +181,7 @@ const Display = ({ busNumber, depot }) => {
       }
 
       if (media) {
+        console.log('Loaded media:', media);
         setMediaContent(media);
       } else {
         // Demo fallback - use video for better demo
@@ -160,14 +203,14 @@ const Display = ({ busNumber, depot }) => {
   // Load news ticker
   const loadNewsTicker = async () => {
     if (!supabase) {
-      setTicker('Welcome to FleetSignage TV Display - Demo Mode');
+      setTicker('Welcome to FleetSignage TV Display');
       return;
     }
 
     try {
       const { data: news, error } = await supabase
         .from('news_feeds')
-        .select('*')
+        .select('title, content')
         .eq('is_active', true)
         .order('created_at', { ascending: false })
         .limit(1)
@@ -175,6 +218,7 @@ const Display = ({ busNumber, depot }) => {
 
       if (error && error.code !== 'PGRST116') {
         console.error('Error fetching news:', error);
+        setTicker('Welcome to FleetSignage TV Display');
         return;
       }
 
@@ -185,6 +229,7 @@ const Display = ({ busNumber, depot }) => {
       }
     } catch (error) {
       console.error('Error loading news:', error);
+      setTicker('Welcome to FleetSignage TV Display');
     }
   };
 
@@ -205,13 +250,13 @@ const Display = ({ busNumber, depot }) => {
       const channel = supabase
         .channel('tv-updates')
         .on('postgres_changes', { 
-          event: '*', 
+          event: 'UPDATE', 
           schema: 'public', 
           table: 'buses',
           filter: `bus_number=eq.${selectedBusNumber}`
         }, (payload) => {
           console.log('Bus location update received:', payload);
-          const bus = payload.new || payload.old;
+          const bus = payload.new;
           if (bus && bus.bus_number === selectedBusNumber) {
             // Update GPS coordinates in real-time
             if (bus.gps_latitude && bus.gps_longitude) {
@@ -226,14 +271,28 @@ const Display = ({ busNumber, depot }) => {
             if (bus.start_point) setNextStop(bus.start_point);
             if (bus.end_point) setFinalDestination(bus.end_point);
             
-            // Reload full bus data
-            loadBusData();
+            // Update bus data state
+            setBusData(prev => ({ ...prev, ...bus }));
           }
         })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'news_feeds' }, (payload) => {
-          const row = payload.new || {};
+        .on('postgres_changes', { 
+          event: 'INSERT', 
+          schema: 'public', 
+          table: 'news_feeds' 
+        }, (payload) => {
+          const row = payload.new;
           if (row.is_active) {
-            setTicker(row.title || row.content || '');
+            setTicker(row.title || row.content || 'Welcome to FleetSignage TV Display');
+          }
+        })
+        .on('postgres_changes', { 
+          event: 'UPDATE', 
+          schema: 'public', 
+          table: 'news_feeds' 
+        }, (payload) => {
+          const row = payload.new;
+          if (row.is_active) {
+            setTicker(row.title || row.content || 'Welcome to FleetSignage TV Display');
           }
         })
         .subscribe();
