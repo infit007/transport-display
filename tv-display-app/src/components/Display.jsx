@@ -203,24 +203,43 @@ const Display = ({ busNumber, depot }) => {
       if (!media) {
         try {
           const mediaData = await tvDisplayAPI.getMedia();
-          console.log('All media data:', mediaData);
+          console.log('All media data from API:', mediaData);
           
           if (mediaData && mediaData.length > 0) {
             // Find media that matches the current bus or just use the first one
             const busSpecificMedia = mediaData.find(m => m.bus_id && selectedBusNumber);
             media = busSpecificMedia || mediaData[0];
-            console.log('Loaded general media:', media);
+            console.log('Selected media:', media);
+            console.log('Media URL:', media?.url);
+            console.log('Media type:', media?.type);
+            console.log('Media name:', media?.name);
+          } else {
+            console.log('No media data returned from API');
           }
         } catch (error) {
           console.error('Error fetching media:', error);
         }
       }
 
-      if (media) {
+      if (media && media.url) {
         console.log('Setting media content:', media);
-        // Ensure we have the correct media type
+        // Determine media type based on file extension or type field
+        let mediaType = 'video'; // default to video
+        
+        if (media.type === 'file') {
+          // Check file extension to determine if it's video or image
+          const url = media.url.toLowerCase();
+          if (url.includes('.mp4') || url.includes('.webm') || url.includes('.ogg') || url.includes('.avi') || url.includes('.mov')) {
+            mediaType = 'video';
+          } else if (url.includes('.jpg') || url.includes('.jpeg') || url.includes('.png') || url.includes('.gif') || url.includes('.webp')) {
+            mediaType = 'image';
+          }
+        } else {
+          mediaType = media.type || 'video';
+        }
+        
         const mediaToSet = {
-          type: media.type || 'video',
+          type: mediaType,
           url: media.url,
           name: media.name || 'Media'
         };
@@ -228,10 +247,10 @@ const Display = ({ busNumber, depot }) => {
         setMediaContent(mediaToSet);
       } else {
         console.log('No media found, using demo fallback');
-        // Demo fallback - use video for better demo
+        // Demo fallback - use a reliable video
         setMediaContent({
           type: 'video',
-          url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+          url: 'https://www.w3schools.com/html/mov_bbb.mp4',
           name: 'Demo Video'
         });
       }
@@ -240,7 +259,8 @@ const Display = ({ busNumber, depot }) => {
       // Demo fallback
       setMediaContent({
         type: 'video',
-        url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4'
+        url: 'https://www.w3schools.com/html/mov_bbb.mp4',
+        name: 'Demo Video'
       });
     }
   };
