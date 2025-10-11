@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { tvDisplayAPI } from '../services/api';
+import MapboxMap from './MapboxMap';
 
 const Display = ({ busNumber, depot }) => {
   const selectedBusNumber = busNumber || localStorage.getItem('tv_bus_number') || '';
@@ -8,6 +9,8 @@ const Display = ({ busNumber, depot }) => {
   // State for bus data from Supabase
   const [busData, setBusData] = useState(null);
   const [currentLocation, setCurrentLocation] = useState(null);
+  const [startLocation, setStartLocation] = useState(null);
+  const [endLocation, setEndLocation] = useState(null);
   const [nextStop, setNextStop] = useState('');
   const [finalDestination, setFinalDestination] = useState('');
   const [ticker, setTicker] = useState('Welcome to FleetSignage TV Display');
@@ -116,6 +119,32 @@ const Display = ({ busNumber, depot }) => {
         setBusData(busData);
         setNextStop(busData.start_point || 'Loading...');
         setFinalDestination(busData.end_point || 'Loading...');
+        
+        // Set start and end locations with coordinates
+        // You can customize these coordinates based on your actual bus stops
+        const locationCoordinates = {
+          'Pithoragarh': { lat: 29.2138, lng: 78.9568 },
+          'Champawat': { lat: 29.4000, lng: 79.1500 },
+          'Kashipur': { lat: 29.2138, lng: 78.9568 },
+          'Jaspur': { lat: 29.4000, lng: 79.1500 },
+          'Har-ki-Pauri': { lat: 30.0068, lng: 78.1378 },
+          'Railway Station': { lat: 29.2500, lng: 79.0000 }
+        };
+        
+        const startCoords = locationCoordinates[busData.start_point] || { lat: 29.2138, lng: 78.9568 };
+        const endCoords = locationCoordinates[busData.end_point] || { lat: 29.4000, lng: 79.1500 };
+        
+        setStartLocation({
+          lat: startCoords.lat,
+          lng: startCoords.lng,
+          name: busData.start_point
+        });
+        
+        setEndLocation({
+          lat: endCoords.lat,
+          lng: endCoords.lng,
+          name: busData.end_point
+        });
         
         // Start journey simulation
         if (busData.start_point && busData.end_point) {
@@ -302,19 +331,13 @@ const Display = ({ busNumber, depot }) => {
           {/* Map Section */}
           <div className="map-section">
             <div className="map-container">
-              <div className="map-placeholder">
-                <div className="map-marker" style={{
-                  left: currentLocation ? '50%' : '50%',
-                  top: currentLocation ? '50%' : '50%',
-                  backgroundColor: currentLocation ? '#00e0ff' : '#ff6b6b'
-                }}></div>
-                {currentLocation && (
-                  <div className="gps-coordinates">
-                    {currentLocation.lat.toFixed(4)}, {currentLocation.lng.toFixed(4)}
-                  </div>
-                )}
-                <div className="map-attribution">Leaflet | © OpenStreetMap contributors</div>
-              </div>
+              <MapboxMap 
+                startLocation={startLocation}
+                endLocation={endLocation}
+                currentLocation={currentLocation}
+                journeyProgress={journeyProgress}
+                busNumber={selectedBusNumber}
+              />
             </div>
           </div>
 
