@@ -15,7 +15,7 @@ const MapboxMap = ({
 
   // You'll need to get a free Mapbox access token from https://mapbox.com
   // For now, using a demo token - replace with your own
-  const MAPBOX_ACCESS_TOKEN = 'pk.eyJ1IjoicGFya2Vhc2UxIiwiYSI6ImNtNGN1M3pmZzBkdWoja3M4OGFydjgzMzUifQ.wbsW51a7zFMq0yz0SeV6_A';
+  const MAPBOX_ACCESS_TOKEN = 'pk.eyJ1IjoibWFwYm94IiwiYSI6ImNpejY4NXVycTA2emYycXBndHRqcmZ3N3gifQ.rJcFIG214AriISLbB6B5aw';
 
   useEffect(() => {
     if (map.current) return; // Initialize map only once
@@ -35,6 +35,33 @@ const MapboxMap = ({
     map.current.on('load', () => {
       setMapLoaded(true);
       console.log('Mapbox map loaded successfully');
+    });
+
+    map.current.on('error', (e) => {
+      console.error('Mapbox error:', e);
+      // Fallback to OpenStreetMap if Mapbox fails
+      if (e.error && e.error.message && e.error.message.includes('401')) {
+        console.log('Falling back to OpenStreetMap due to invalid token');
+        map.current.setStyle({
+          version: 8,
+          sources: {
+            'osm': {
+              type: 'raster',
+              tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+              tileSize: 256,
+              attribution: '© OpenStreetMap contributors'
+            }
+          },
+          layers: [
+            {
+              id: 'osm',
+              type: 'raster',
+              source: 'osm'
+            }
+          ]
+        });
+        setMapLoaded(true);
+      }
     });
 
     // Add navigation control
@@ -64,6 +91,10 @@ const MapboxMap = ({
         const response = await fetch(
           `https://api.mapbox.com/directions/v5/mapbox/driving/${startLocation.lng},${startLocation.lat};${endLocation.lng},${endLocation.lat}?geometries=geojson&access_token=${MAPBOX_ACCESS_TOKEN}`
         );
+        
+        if (!response.ok) {
+          throw new Error(`Directions API error: ${response.status}`);
+        }
         
         const data = await response.json();
         
@@ -110,6 +141,51 @@ const MapboxMap = ({
         }
       } catch (error) {
         console.error('Error adding directions:', error);
+        // Add a simple straight line between start and end if directions fail
+        if (map.current && startLocation && endLocation) {
+          try {
+            map.current.addSource('route', {
+              type: 'geojson',
+              data: {
+                type: 'Feature',
+                properties: {},
+                geometry: {
+                  type: 'LineString',
+                  coordinates: [
+                    [startLocation.lng, startLocation.lat],
+                    [endLocation.lng, endLocation.lat]
+                  ]
+                }
+              }
+            });
+
+            map.current.addLayer({
+              id: 'route',
+              type: 'line',
+              source: 'route',
+              layout: {
+                'line-join': 'round',
+                'line-cap': 'round'
+              },
+              paint: {
+                'line-color': '#00e0ff',
+                'line-width': 4,
+                'line-opacity': 0.8
+              }
+            });
+
+            // Fit map to show both points
+            const bounds = new mapboxgl.LngLatBounds(
+              [startLocation.lng, startLocation.lat],
+              [endLocation.lng, endLocation.lat]
+            );
+            map.current.fitBounds(bounds, { padding: 50 });
+
+            console.log('Added fallback straight line route');
+          } catch (fallbackError) {
+            console.error('Fallback route also failed:', fallbackError);
+          }
+        }
       }
     };
 
