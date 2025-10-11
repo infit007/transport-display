@@ -1,97 +1,243 @@
-import { useEffect, useRef, useState } from 'react';
-import { getContent, openSocket } from '../services/api';
+import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from '../services/supabase';
-import { getDeviceId, getToken, logout } from '../services/auth';
 
 const Display = ({ busNumber, depot }) => {
-  const deviceId = getDeviceId();
   const selectedBusNumber = busNumber || localStorage.getItem('tv_bus_number') || '';
   const selectedDepot = depot || localStorage.getItem('tv_depot') || '';
-  const [items, setItems] = useState([]);
+  
+  // State for bus data from Supabase
+  const [busData, setBusData] = useState(null);
+  const [currentLocation, setCurrentLocation] = useState(null);
+  const [nextStop, setNextStop] = useState('');
+  const [finalDestination, setFinalDestination] = useState('');
   const [ticker, setTicker] = useState('Welcome to FleetSignage TV Display');
+  const [mediaContent, setMediaContent] = useState(null);
+  
   const timerRef = useRef(null);
 
-  const load = async () => {
+  // Load bus data from Supabase
+  const loadBusData = async () => {
+    if (!supabase) {
+      console.log('Supabase not configured, using demo data');
+      setBusData({
+        bus_number: selectedBusNumber || 'UK-01-A-1001',
+        route_name: 'Dehradun - Haridwar',
+        start_point: 'Dehradun',
+        end_point: 'Haridwar',
+        current_location: 'Kashipur',
+        next_stop: 'Kashipur',
+        final_destination: 'Jaspur'
+      });
+      setNextStop('Kashipur');
+      setFinalDestination('Jaspur');
+      setCurrentLocation({ lat: 29.2138, lng: 78.9568 }); // Kashipur coordinates
+      return;
+    }
+
     try {
-      const res = await getContent(deviceId);
-      setItems(res?.items || []);
-      setTicker(res?.ticker || 'Welcome to FleetSignage TV Display');
-    } catch (e) {
-      // If no backend, show demo content
-      console.log('No backend available, showing demo content');
-      setItems([
-        { type: 'text', text: `Bus: ${selectedBusNumber || 'Not selected'}\nDepot: ${selectedDepot || 'Not selected'}` },
-        { type: 'text', text: 'Demo Content - Configure your CMS backend' }
-      ]);
+      // Fetch bus data from Supabase
+      const { data: buses, error } = await supabase
+        .from('buses')
+        .select('*')
+        .eq('bus_number', selectedBusNumber)
+        .single();
+
+      if (error && error.code !== 'PGRST116') {
+        console.error('Error fetching bus data:', error);
+        return;
+      }
+
+      if (buses) {
+        setBusData(buses);
+        setNextStop(buses.current_location || buses.start_point || '');
+        setFinalDestination(buses.end_point || '');
+        
+        // Set demo coordinates for current location
+        setCurrentLocation({ lat: 29.2138, lng: 78.9568 });
+      } else {
+        // Use demo data if bus not found
+        setBusData({
+          bus_number: selectedBusNumber || 'UK-01-A-1001',
+          route_name: 'Demo Route',
+          start_point: 'Dehradun',
+          end_point: 'Haridwar',
+          current_location: 'Kashipur'
+        });
+        setNextStop('Kashipur');
+        setFinalDestination('Jaspur');
+        setCurrentLocation({ lat: 29.2138, lng: 78.9568 });
+      }
+    } catch (error) {
+      console.error('Error loading bus data:', error);
+    }
+  };
+
+  // Load media content
+  const loadMediaContent = async () => {
+    if (!supabase) {
+      // Demo media content
+      setMediaContent({
+        type: 'image',
+        url: 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=1920&h=1080&fit=crop&crop=center'
+      });
+      return;
+    }
+
+    try {
+      const { data: media, error } = await supabase
+        .from('media_content')
+        .select('*')
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (error && error.code !== 'PGRST116') {
+        console.error('Error fetching media:', error);
+        return;
+      }
+
+      if (media) {
+        setMediaContent(media);
+      } else {
+        // Demo fallback
+        setMediaContent({
+          type: 'image',
+          url: 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=1920&h=1080&fit=crop&crop=center'
+        });
+      }
+    } catch (error) {
+      console.error('Error loading media:', error);
+    }
+  };
+
+  // Load news ticker
+  const loadNewsTicker = async () => {
+    if (!supabase) {
+      setTicker('Welcome to FleetSignage TV Display - Demo Mode');
+      return;
+    }
+
+    try {
+      const { data: news, error } = await supabase
+        .from('news_feeds')
+        .select('*')
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (error && error.code !== 'PGRST116') {
+        console.error('Error fetching news:', error);
+        return;
+      }
+
+      if (news) {
+        setTicker(news.title || news.content || 'Welcome to FleetSignage TV Display');
+      } else {
+        setTicker('Welcome to FleetSignage TV Display');
+      }
+    } catch (error) {
+      console.error('Error loading news:', error);
     }
   };
 
   useEffect(() => {
-    load();
-    timerRef.current = setInterval(load, 30000);
-    const socket = openSocket();
-    socket.on('content:update', (payload) => {
-      if (!payload) return;
-      if (payload.deviceId && deviceId && payload.deviceId !== deviceId) return;
-      if (payload.targets) {
-        const ids = Array.isArray(payload.targets.deviceIds) ? payload.targets.deviceIds : [];
-        const depos = Array.isArray(payload.targets.depots) ? payload.targets.depots : [];
-        const okId = ids.length === 0 || ids.includes(selectedBusNumber);
-        const okDepot = depos.length === 0 || (selectedDepot && depos.includes(selectedDepot));
-        if (!okId || !okDepot) return;
-      }
-      load();
-    });
-    // Live news/ticker via Supabase (optional)
+    loadBusData();
+    loadMediaContent();
+    loadNewsTicker();
+
+    // Refresh data every 30 seconds
+    timerRef.current = setInterval(() => {
+      loadBusData();
+      loadMediaContent();
+      loadNewsTicker();
+    }, 30000);
+
+    // Subscribe to real-time updates
     if (supabase) {
       const channel = supabase
-        .channel('tv-news')
+        .channel('tv-updates')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'buses' }, (payload) => {
+          if (payload.new?.bus_number === selectedBusNumber) {
+            loadBusData();
+          }
+        })
         .on('postgres_changes', { event: '*', schema: 'public', table: 'news_feeds' }, (payload) => {
           const row = payload.new || {};
-          if (row.is_active) setTicker(row.title || row.content || '');
+          if (row.is_active) {
+            setTicker(row.title || row.content || '');
+          }
         })
         .subscribe();
+
       return () => {
         clearInterval(timerRef.current);
-        socket.close();
         supabase.removeChannel(channel);
       };
     }
+
     return () => {
       clearInterval(timerRef.current);
-      socket.close();
     };
-  }, []);
+  }, [selectedBusNumber]);
 
-  const primary = items[0] || { type: 'text', text: 'Awaiting content…' };
-  const schedule = items.slice(1);
+  console.log('Display component rendering with:', { busNumber: selectedBusNumber, depot: selectedDepot, nextStop, finalDestination, ticker });
 
   return (
-    <div className="content">
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16 }}>
-        <div style={{ background: '#000', borderRadius: 12, height: '100%' }}>
-          {primary.type === 'video' ? (
-            <video src={primary.url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} autoPlay muted loop playsInline />
-          ) : primary.type === 'image' ? (
-            <img src={primary.url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+    <div className="display-container">
+      {/* Main Content Area */}
+      <div className="main-content">
+        {/* Left Panel - Media Display */}
+        <div className="media-panel">
+          {mediaContent?.type === 'video' ? (
+            <video 
+              src={mediaContent.url} 
+              className="media-content"
+              autoPlay 
+              muted 
+              loop 
+              playsInline 
+            />
           ) : (
-            <div className="screen" style={{ fontSize: 48, textAlign: 'center' }}>{primary.text}</div>
+            <img 
+              src={mediaContent?.url || 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=1920&h=1080&fit=crop&crop=center'} 
+              className="media-content"
+              alt="Display content"
+            />
           )}
         </div>
-        <div style={{ background: '#0b0b0b', borderRadius: 12, padding: 16, overflow: 'auto' }}>
-          <h2>Schedule</h2>
-          {schedule.length === 0 ? (
-            <div className="hint">No schedule yet. Configure in CMS.</div>
-          ) : (
-            <ul>
-              {schedule.map((it, i) => (
-                <li key={i} style={{ margin: '12px 0' }}>{it.title || it.text || it.url}</li>
-              ))}
-            </ul>
-          )}
+
+        {/* Right Panel - Information */}
+        <div className="info-panel">
+          {/* Map Section */}
+          <div className="map-section">
+            <div className="map-container">
+              <div className="map-placeholder">
+                <div className="map-marker"></div>
+                <div className="map-attribution">Leaflet | © OpenStreetMap contributors</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Next Stop Section */}
+          <div className="stop-section next-stop">
+            <div className="stop-label">NEXT STOP</div>
+            <div className="stop-name">{nextStop || 'Loading...'}</div>
+          </div>
+
+          {/* Final Destination Section */}
+          <div className="stop-section final-destination">
+            <div className="stop-label">FINAL DESTINATION</div>
+            <div className="stop-name">{finalDestination || 'Loading...'}</div>
+          </div>
         </div>
       </div>
-      <div className="ticker">{ticker || 'Welcome'}</div>
+
+      {/* Bottom Ticker */}
+      <div className="ticker-bar">
+        <div className="ticker-content">{ticker}</div>
+      </div>
     </div>
   );
 };

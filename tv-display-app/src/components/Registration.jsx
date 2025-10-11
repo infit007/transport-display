@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { registerDevice } from '../services/api';
 import { saveRegistration } from '../services/auth';
 
