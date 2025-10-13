@@ -15,6 +15,9 @@ const Display = ({ busNumber, depot }) => {
   const [finalDestination, setFinalDestination] = useState('');
   const [ticker, setTicker] = useState('Welcome to FleetSignage TV Display');
   const [mediaContent, setMediaContent] = useState(null);
+  const [playlist, setPlaylist] = useState([]);
+  const [playlistIndex, setPlaylistIndex] = useState(0);
+  const imageTimerRef = useRef(null);
   const [journeyProgress, setJourneyProgress] = useState(0); // 0 to 1
   
   const timerRef = useRef(null);
@@ -177,6 +180,7 @@ const Display = ({ busNumber, depot }) => {
       console.log('Loading media for bus:', selectedBusNumber);
       
       let media = null;
+      let list = [];
       
       // Try to get media specific to the bus first
       if (selectedBusNumber) {
@@ -189,9 +193,10 @@ const Display = ({ busNumber, depot }) => {
             const mediaData = await tvDisplayAPI.getMediaForBus(busData.id);
             console.log('Bus-specific media data:', mediaData);
             
-            if (mediaData && mediaData.length > 0) {
+            if (Array.isArray(mediaData) && mediaData.length > 0) {
+              list = mediaData;
               media = mediaData[0];
-              console.log('Loaded bus-specific media:', media);
+              console.log('Loaded bus-specific playlist:', mediaData);
             }
           }
         } catch (error) {
@@ -205,14 +210,10 @@ const Display = ({ busNumber, depot }) => {
           const mediaData = await tvDisplayAPI.getMedia();
           console.log('All media data from API:', mediaData);
           
-          if (mediaData && mediaData.length > 0) {
-            // Find media that matches the current bus or just use the first one
-            const busSpecificMedia = mediaData.find(m => m.bus_id && selectedBusNumber);
-            media = busSpecificMedia || mediaData[0];
-            console.log('Selected media:', media);
-            console.log('Media URL:', media?.url);
-            console.log('Media type:', media?.type);
-            console.log('Media name:', media?.name);
+          if (Array.isArray(mediaData) && mediaData.length > 0) {
+            list = mediaData;
+            media = mediaData[0];
+            console.log('Selected playlist, first media:', media);
           } else {
             console.log('No media data returned from API');
           }
@@ -238,13 +239,22 @@ const Display = ({ busNumber, depot }) => {
           mediaType = media.type || 'video';
         }
         
-        const mediaToSet = {
-          type: mediaType,
-          url: media.url,
-          name: media.name || 'Media'
+        const normalize = (m) => {
+          const url = (m?.url || '').toLowerCase();
+          let type = 'video';
+          if (m?.type === 'file') {
+            if (url.includes('.mp4') || url.includes('.webm') || url.includes('.ogg') || url.includes('.avi') || url.includes('.mov')) type = 'video';
+            else if (url.includes('.jpg') || url.includes('.jpeg') || url.includes('.png') || url.includes('.gif') || url.includes('.webp')) type = 'image';
+          } else if (m?.type) {
+            type = m.type;
+          }
+          return { type, url: m.url, name: m.name || 'Media' };
         };
-        console.log('Processed media:', mediaToSet);
-        setMediaContent(mediaToSet);
+
+        const normalizedList = (list.length ? list : [media]).map(normalize).filter(x => x.url);
+        setPlaylist(normalizedList);
+        setPlaylistIndex(0);
+        setMediaContent(normalize(media));
       } else {
         console.log('No media found, using demo fallback');
         // Demo fallback - use a reliable video
@@ -253,6 +263,8 @@ const Display = ({ busNumber, depot }) => {
           url: 'https://www.w3schools.com/html/mov_bbb.mp4',
           name: 'Demo Video'
         });
+        setPlaylist([{ type: 'video', url: 'https://www.w3schools.com/html/mov_bbb.mp4', name: 'Demo Video' }]);
+        setPlaylistIndex(0);
       }
     } catch (error) {
       console.error('Error loading media:', error);
@@ -262,8 +274,38 @@ const Display = ({ busNumber, depot }) => {
         url: 'https://www.w3schools.com/html/mov_bbb.mp4',
         name: 'Demo Video'
       });
+      setPlaylist([{ type: 'video', url: 'https://www.w3schools.com/html/mov_bbb.mp4', name: 'Demo Video' }]);
+      setPlaylistIndex(0);
     }
   };
+
+  // Advance playlist
+  const advancePlaylist = () => {
+    if (!playlist || playlist.length === 0) return;
+    const next = (playlistIndex + 1) % playlist.length;
+    setPlaylistIndex(next);
+    setMediaContent(playlist[next]);
+  };
+
+  // For images, rotate every 8 seconds
+  useEffect(() => {
+    if (!mediaContent) return;
+    if (imageTimerRef.current) {
+      clearTimeout(imageTimerRef.current);
+      imageTimerRef.current = null;
+    }
+    if (mediaContent.type === 'image') {
+      imageTimerRef.current = setTimeout(() => {
+        advancePlaylist();
+      }, 8000);
+    }
+    return () => {
+      if (imageTimerRef.current) {
+        clearTimeout(imageTimerRef.current);
+        imageTimerRef.current = null;
+      }
+    };
+  }, [mediaContent, playlistIndex]);
 
   // Load news ticker
   const loadNewsTicker = async () => {
@@ -317,13 +359,14 @@ const Display = ({ busNumber, depot }) => {
           {console.log('Rendering media:', mediaContent)}
           {mediaContent?.type === 'video' ? (
             <video 
+              key={mediaContent.url}
               src={mediaContent.url} 
               className="media-content"
               autoPlay 
               muted 
-              loop 
               playsInline 
-              onError={(e) => console.error('Video load error:', e)}
+              onEnded={advancePlaylist}
+              onError={(e) => { console.error('Video load error:', e); advancePlaylist(); }}
               onLoadStart={() => console.log('Video loading started')}
               onCanPlay={() => console.log('Video can play')}
             />

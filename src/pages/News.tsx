@@ -31,6 +31,13 @@ const News = () => {
   ];
   const [targetDepot, setTargetDepot] = useState<string>("");
   const [targetBusNumber, setTargetBusNumber] = useState<string>("");
+  const [buses, setBuses] = useState<{ id: string; bus_number: string; depo?: string }[]>([]);
+  const [selectedBusIds, setSelectedBusIds] = useState<string[]>([]);
+  const [mediaItems, setMediaItems] = useState<{ url: string; type: string; name?: string; bus_id?: string }[]>([]);
+  const [selectedMediaIdx, setSelectedMediaIdx] = useState<number[]>([]);
+  const [uploading, setUploading] = useState<boolean>(false);
+  const [assigning, setAssigning] = useState<boolean>(false);
+  const [assignProgress, setAssignProgress] = useState<{ done: number; total: number } | null>(null);
 
   const loadNews = async () => {
     const { data, error } = await (supabase as any)
@@ -52,6 +59,9 @@ const News = () => {
     } catch {
       // ignore
     }
+    // load initial lists
+    fetch(`${backendUrl}/api/buses/public`).then(r => r.json()).then(setBuses).catch(() => {});
+    fetch(`${backendUrl}/api/media/public`).then(r => r.json()).then((list) => setMediaItems(Array.isArray(list) ? list : [])).catch(() => {});
     return () => {
       socketRef.current?.disconnect();
     };
@@ -121,6 +131,65 @@ const News = () => {
     toast.success("Saved (if permitted) and pushed to displays");
   };
 
+  const onUploadFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('title', file.name);
+      form.append('type', 'file');
+      const resp = await fetch(`${backendUrl}/api/media/upload`, { method: 'POST', body: form, credentials: 'include' });
+      if (!resp.ok) throw new Error(`Upload failed (${resp.status})`);
+      await fetch(`${backendUrl}/api/media/public`).then(r => r.json()).then((list) => setMediaItems(Array.isArray(list) ? list : []));
+      toast.success('Uploaded');
+    } catch (err: any) {
+      toast.error(err.message || 'Upload failed');
+    } finally {
+      setUploading(false);
+      e.target.value = '';
+    }
+  };
+
+  const toggleBus = (id: string) => {
+    setSelectedBusIds((prev) => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+  const toggleMedia = (idx: number) => {
+    setSelectedMediaIdx((prev) => prev.includes(idx) ? prev.filter(x => x !== idx) : [...prev, idx]);
+  };
+
+  const assignSelectedMediaToBuses = async () => {
+    if (selectedBusIds.length === 0) return toast.error('Select at least one bus');
+    const items = selectedMediaIdx.map((i) => mediaItems[i]).filter(Boolean).map((m) => ({ url: m.url, type: m.type, name: m.name }));
+    if (items.length === 0) return toast.error('Select at least one media item');
+    setAssigning(true);
+    const total = selectedBusIds.length * items.length;
+    setAssignProgress({ done: 0, total });
+    try {
+      // Sequential loop: push each media to each bus one by one
+      for (const busId of selectedBusIds) {
+        for (const item of items) {
+          const resp = await fetch(`${backendUrl}/api/media/public/assign`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ busIds: [busId], items: [item] }),
+          });
+          if (!resp.ok) throw new Error(`Assign failed (${resp.status})`);
+          setAssignProgress((p) => p ? { done: p.done + 1, total: p.total } : { done: 1, total });
+          // small delay to avoid flooding
+          await new Promise(r => setTimeout(r, 150));
+        }
+      }
+      toast.success('Assigned to buses');
+    } catch (err: any) {
+      toast.error(err.message || 'Assign failed');
+    } finally {
+      setAssigning(false);
+      setAssignProgress(null);
+    }
+  };
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -177,6 +246,69 @@ const News = () => {
                 </div>
               </div>
             </form>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Push Media to Multiple Buses</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div>
+                <Label>1) Choose Depot</Label>
+                <Select value={targetDepot || "__ALL__"} onValueChange={(v) => setTargetDepot(v === "__ALL__" ? "" : v)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="All Depots" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__ALL__">All Depots</SelectItem>
+                    {uttarakhandDepots.map((d) => (
+                      <SelectItem key={d} value={d}>{d}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <div className="mt-3 max-h-56 overflow-auto border rounded-md">
+                  {buses
+                    .filter(b => !targetDepot || b.depo === targetDepot)
+                    .map(b => (
+                      <label key={b.id} className="flex items-center gap-2 p-2 hover:bg-muted">
+                        <input type="checkbox" checked={selectedBusIds.includes(b.id)} onChange={() => toggleBus(b.id)} />
+                        <span className="text-sm">{b.bus_number} {b.depo ? `( ${b.depo} )` : ''}</span>
+                      </label>
+                    ))}
+                </div>
+              </div>
+
+              <div>
+                <Label>2) Upload or Select Media</Label>
+                <div className="flex items-center gap-3">
+                  <Input type="file" accept="video/*,image/*" onChange={onUploadFile} disabled={uploading} />
+                  <Button type="button" variant="outline" onClick={() => fetch(`${backendUrl}/api/media/public`).then(r => r.json()).then((l) => setMediaItems(Array.isArray(l) ? l : []) )}>Refresh</Button>
+                </div>
+                <div className="mt-3 max-h-56 overflow-auto border rounded-md">
+                  {mediaItems.map((m, idx) => (
+                    <label key={`${m.url}-${idx}`} className="flex items-center gap-2 p-2 hover:bg-muted">
+                      <input type="checkbox" checked={selectedMediaIdx.includes(idx)} onChange={() => toggleMedia(idx)} />
+                      <span className="text-sm truncate" title={m.url}>{m.name || 'Media'} — {m.type}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <Label>3) Push</Label>
+                <p className="text-sm text-muted-foreground mb-2">Pushes each selected media to each selected bus sequentially.</p>
+                <div className="flex items-center gap-3">
+                  <Button type="button" onClick={assignSelectedMediaToBuses} disabled={assigning}>
+                    {assigning ? 'Pushing...' : 'Push to Selected Buses'}
+                  </Button>
+                  {assignProgress && (
+                    <span className="text-sm text-muted-foreground">{assignProgress.done}/{assignProgress.total}</span>
+                  )}
+                </div>
+              </div>
+            </div>
           </CardContent>
         </Card>
 

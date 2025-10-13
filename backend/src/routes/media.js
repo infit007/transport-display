@@ -35,12 +35,45 @@ router.get('/public/bus/:busId', async (req, res) => {
   const { busId } = req.params;
   const { data, error } = await supabase
     .from('media_library')
-    .select('url, type, name, bus_id')
+    .select('url, type, name, bus_id, created_at')
     .eq('bus_id', busId)
-    .order('created_at', { ascending: false })
-    .limit(1);
+    .order('created_at', { ascending: true });
   if (error) return res.status(500).json({ error: error.message });
   return res.json(data);
+});
+
+// Public endpoint to assign media items to multiple buses
+// Body: { busIds: string[], items: { url: string, type: 'file'|'link', name?: string }[] }
+router.post('/public/assign', async (req, res) => {
+  try {
+    const { busIds, items } = req.body || {};
+    if (!Array.isArray(busIds) || busIds.length === 0) return res.status(400).json({ error: 'busIds required' });
+    if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'items required' });
+
+    const rows = [];
+    for (const busId of busIds) {
+      for (const item of items) {
+        if (!item?.url || !item?.type) continue;
+        rows.push({
+          name: item.name || 'Media',
+          type: item.type,
+          url: item.url,
+          bus_id: busId,
+        });
+      }
+    }
+
+    if (rows.length === 0) return res.status(400).json({ error: 'No valid assignments' });
+
+    const { error, data } = await supabase
+      .from('media_library')
+      .insert(rows)
+      .select('id, name, type, url, bus_id');
+    if (error) return res.status(400).json({ error: error.message });
+    return res.status(201).json({ inserted: data?.length || 0, items: data });
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
 });
 
 router.post('/upload', authenticate, requireRole('admin', 'operator'), upload.single('file'), async (req, res) => {
