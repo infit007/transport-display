@@ -252,9 +252,22 @@ const Display = ({ busNumber, depot }) => {
         };
 
         const normalizedList = (list.length ? list : [media]).map(normalize).filter(x => x.url);
-        setPlaylist(normalizedList);
-        setPlaylistIndex(0);
-        setMediaContent(normalize(media));
+
+        // If playlist hasn't changed (same urls order), keep current index and item
+        const currentUrls = (playlist || []).map(i => i.url);
+        const newUrls = normalizedList.map(i => i.url);
+        const sameList = currentUrls.length === newUrls.length && currentUrls.every((u, i) => u === newUrls[i]);
+
+        if (sameList && playlist.length > 0) {
+          // No change; only ensure mediaContent is set
+          if (!mediaContent) {
+            setMediaContent(playlist[playlistIndex] || playlist[0]);
+          }
+        } else {
+          setPlaylist(normalizedList);
+          setPlaylistIndex(0);
+          setMediaContent(normalizedList[0] || null);
+        }
       } else {
         console.log('No media found, using demo fallback');
         // Demo fallback - use a reliable video
