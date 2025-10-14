@@ -79,7 +79,7 @@ const MapboxMap = ({
     if (!mapLoaded) return;
     const m = map.current;
     if (!m) return;
-    if (!endLocation || !isValidLngLat(endLocation)) return;
+    if (!isValidLngLat(endLocation)) return;
     // Prefer currentLocation (device). Fallback to startLocation if valid
     const start = isValidLngLat(currentLocation) ? currentLocation : startLocation;
     if (!isValidLngLat(start)) return;
@@ -155,7 +155,8 @@ const MapboxMap = ({
 
   // Add start and end markers
   useEffect(() => {
-    if (!mapLoaded || !map.current || !startLocation || !endLocation) return;
+    if (!mapLoaded || !map.current) return;
+    if (!isValidLngLat(startLocation) || !isValidLngLat(endLocation)) return;
 
     // Remove existing start/end markers
     const existingMarkers = document.querySelectorAll('.start-marker, .end-marker');
