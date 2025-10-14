@@ -48,6 +48,7 @@ router.get('/public/bus/:busId', async (req, res) => {
 router.post('/public/assign', async (req, res) => {
   try {
     const { busIds, items } = req.body || {};
+    console.log('DEV Assigning media to buses:', busIds, items);
     if (!Array.isArray(busIds) || busIds.length === 0) return res.status(400).json({ error: 'busIds required' });
     if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'items required' });
 

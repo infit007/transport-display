@@ -170,6 +170,7 @@ const News = () => {
       // Sequential loop: push each media to each bus one by one
       for (const busId of selectedBusIds) {
         for (const item of items) {
+          console.log('DEV Assigning media to bus:', busId, item);
           const resp = await fetch(`${backendUrl}/api/media/public/assign`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
