@@ -20,6 +20,7 @@ const Display = ({ busNumber, depot }) => {
   const [playlistIndex, setPlaylistIndex] = useState(0);
   const imageTimerRef = useRef(null);
   const [journeyProgress, setJourneyProgress] = useState(0); // 0 to 1
+  const [usingDeviceGps, setUsingDeviceGps] = useState(false);
   
   const timerRef = useRef(null);
   const journeyRef = useRef(null);
@@ -84,6 +85,36 @@ const Display = ({ busNumber, depot }) => {
       }
     }, 1000); // Update every second
   };
+
+  // Prefer real device GPS when available: follow device and route from current position
+  useEffect(() => {
+    if (!('geolocation' in navigator)) return;
+    let watchId = null;
+    try {
+      watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          const { latitude, longitude } = pos.coords || {};
+          if (typeof latitude === 'number' && typeof longitude === 'number') {
+            setUsingDeviceGps(true);
+            const loc = { lat: latitude, lng: longitude };
+            setCurrentLocation(loc);
+            // Use device position as dynamic start for routing
+            setStartLocation((prev) => prev ? { ...prev, lat: loc.lat, lng: loc.lng, name: prev.name || 'Current Location' } : { ...loc, name: 'Current Location' });
+            // Stop the simulator when we have real GPS
+            if (journeyRef.current) {
+              clearInterval(journeyRef.current);
+              journeyRef.current = null;
+            }
+          }
+        },
+        () => {},
+        { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+      );
+    } catch {}
+    return () => {
+      try { if (watchId != null) navigator.geolocation.clearWatch(watchId); } catch {}
+    };
+  }, []);
 
   // Load bus data from backend API
   const loadBusData = async () => {
@@ -153,7 +184,7 @@ const Display = ({ busNumber, depot }) => {
         });
         
         // Start journey simulation
-        if (busData.start_point && busData.end_point) {
+        if (!usingDeviceGps && busData.start_point && busData.end_point) {
           startJourneySimulation(busData.start_point, busData.end_point);
         }
         

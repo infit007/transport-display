@@ -12,7 +12,6 @@ const MapboxMap = ({
   const mapContainer = useRef(null);
   const map = useRef(null);
   const [mapLoaded, setMapLoaded] = useState(false);
-  const userMarkerRef = useRef(null);
 
   // You'll need to get a free Mapbox access token from https://mapbox.com
   // For now, using a demo token - replace with your own
@@ -72,8 +71,7 @@ const MapboxMap = ({
 
   // Add directions and route when map is loaded and we have start/end locations
   useEffect(() => {
-    const hasCoords = (p) => p && typeof p.lng === 'number' && typeof p.lat === 'number';
-    if (!mapLoaded || !map.current || !hasCoords(startLocation) || !hasCoords(endLocation)) return;
+    if (!mapLoaded || !map.current || !startLocation || !endLocation) return;
 
     const addDirections = async () => {
       try {
@@ -135,75 +133,36 @@ const MapboxMap = ({
 
   // Update current location marker
   useEffect(() => {
-    const hasCoords = (p) => p && typeof p.lng === 'number' && typeof p.lat === 'number';
-    if (!mapLoaded || !map.current || !hasCoords(currentLocation)) return;
-    // Maintain a single marker instance for current device location
-    if (!userMarkerRef.current) {
-      userMarkerRef.current = new mapboxgl.Marker({ color: '#00e0ff', scale: 1.2 });
-      userMarkerRef.current.addTo(map.current);
-    }
-    userMarkerRef.current.setLngLat([currentLocation.lng, currentLocation.lat]);
+    if (!mapLoaded || !map.current || !currentLocation) return;
+
+    // Remove existing markers
+    const existingMarkers = document.querySelectorAll('.mapboxgl-marker');
+    existingMarkers.forEach(marker => marker.remove());
+
+    // Add current location marker
+    const marker = new mapboxgl.Marker({
+      color: '#00e0ff',
+      scale: 1.2
+    })
+      .setLngLat([currentLocation.lng, currentLocation.lat])
+      .addTo(map.current);
+
+    // Add popup with bus info
+    const popup = new mapboxgl.Popup({ offset: 25 })
+      .setHTML(`
+        <div style="color: #000; font-size: 12px;">
+          <strong>Bus ${busNumber}</strong><br/>
+          ${currentLocation.lat.toFixed(4)}, ${currentLocation.lng.toFixed(4)}
+        </div>
+      `);
+    
+    marker.setPopup(popup);
 
     // Center map on current location
-    try {
-      map.current.setCenter([currentLocation.lng, currentLocation.lat]);
-    } catch {}
+    map.current.setCenter([currentLocation.lng, currentLocation.lat]);
     map.current.setZoom(13);
 
   }, [mapLoaded, currentLocation, busNumber]);
-
-  // Geolocate: if app runs on a device, use its GPS and draw route to destination
-  useEffect(() => {
-    if (!mapLoaded || !map.current) return;
-    if (!('geolocation' in navigator)) return;
-    const hasCoords = (p) => p && typeof p.lng === 'number' && typeof p.lat === 'number';
-    if (!hasCoords(endLocation)) return;
-
-    const watchId = navigator.geolocation.watchPosition(
-      (pos) => {
-        const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        // Update marker and center softly
-        if (!userMarkerRef.current) {
-          userMarkerRef.current = new mapboxgl.Marker({ color: '#00e0ff', scale: 1.2 }).addTo(map.current);
-        }
-        userMarkerRef.current.setLngLat([coords.lng, coords.lat]);
-        map.current.easeTo({ center: [coords.lng, coords.lat], duration: 800 });
-
-        // Draw simple line from current device location to destination
-        try {
-          if (map.current.getSource('device-route')) {
-            map.current.removeLayer('device-route');
-            map.current.removeSource('device-route');
-          }
-          map.current.addSource('device-route', {
-            type: 'geojson',
-            data: {
-              type: 'Feature',
-              properties: {},
-              geometry: {
-                type: 'LineString',
-                coordinates: [ [coords.lng, coords.lat], [endLocation.lng, endLocation.lat] ]
-              }
-            }
-          });
-          map.current.addLayer({
-            id: 'device-route',
-            type: 'line',
-            source: 'device-route',
-            paint: { 'line-color': '#3b82f6', 'line-width': 4, 'line-opacity': 0.85 }
-          });
-        } catch {}
-      },
-      () => {},
-      { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
-    );
-
-    return () => {
-      if (watchId && navigator.geolocation.clearWatch) {
-        navigator.geolocation.clearWatch(watchId);
-      }
-    };
-  }, [mapLoaded, endLocation]);
 
   // Add start and end markers
   useEffect(() => {
