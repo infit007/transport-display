@@ -14,6 +14,10 @@ const MapboxMap = ({
   const [mapLoaded, setMapLoaded] = useState(false);
   const currentMarkerRef = useRef(null);
 
+  const isValidLngLat = (p) => {
+    return p && typeof p.lat === 'number' && typeof p.lng === 'number' && !Number.isNaN(p.lat) && !Number.isNaN(p.lng);
+  };
+
   // You'll need to get a free Mapbox access token from https://mapbox.com
   // For now, using a demo token - replace with your own
   const MAPBOX_ACCESS_TOKEN = 'pk.eyJ1IjoibWFwYm94IiwiYSI6ImNpejY4NXVycTA2emYycXBndHRqcmZ3N3gifQ.rJcFIG214AriISLbB6B5aw';
@@ -72,17 +76,20 @@ const MapboxMap = ({
 
   // Add realistic road route using OSRM whenever current/end change
   useEffect(() => {
-    if (!mapLoaded || !map.current || !endLocation) return;
-    // Prefer currentLocation (device). Fallback to startLocation if not present
-    const start = currentLocation || startLocation;
-    if (!start) return;
+    if (!mapLoaded) return;
+    const m = map.current;
+    if (!m) return;
+    if (!endLocation || !isValidLngLat(endLocation)) return;
+    // Prefer currentLocation (device). Fallback to startLocation if valid
+    const start = isValidLngLat(currentLocation) ? currentLocation : startLocation;
+    if (!isValidLngLat(start)) return;
 
     const drawRoute = async () => {
       try {
         // Remove existing route if any
-        if (map.current.getSource('route')) {
-          map.current.removeLayer('route');
-          map.current.removeSource('route');
+        if (m.getSource('route')) {
+          if (m.getLayer('route')) m.removeLayer('route');
+          m.removeSource('route');
         }
 
         const url = `https://router.project-osrm.org/route/v1/driving/${start.lng},${start.lat};${endLocation.lng},${endLocation.lat}?overview=full&geometries=geojson`;
@@ -92,7 +99,7 @@ const MapboxMap = ({
 
         if (!Array.isArray(coords) || coords.length < 2) {
           console.warn('OSRM returned no route, fallback to straight line');
-          map.current.addSource('route', {
+          m.addSource('route', {
             type: 'geojson',
             data: {
               type: 'Feature',
@@ -101,13 +108,13 @@ const MapboxMap = ({
             }
           });
         } else {
-          map.current.addSource('route', {
+          m.addSource('route', {
             type: 'geojson',
             data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } }
           });
         }
 
-        map.current.addLayer({
+        m.addLayer({
           id: 'route',
           type: 'line',
           source: 'route',
@@ -117,9 +124,10 @@ const MapboxMap = ({
 
         // Fit bounds to route
         const b = new mapboxgl.LngLatBounds();
-        const points = (map.current.getSource('route')._data.geometry.coordinates);
-        points.forEach(p => b.extend(p));
-        map.current.fitBounds(b, { padding: 50 });
+        const points = m.getSource('route') && m.getSource('route')._data && m.getSource('route')._data.geometry && m.getSource('route')._data.geometry.coordinates;
+        const coordsToUse = Array.isArray(points) && points.length ? points : [[start.lng, start.lat],[endLocation.lng, endLocation.lat]];
+        coordsToUse.forEach((p) => { try { b.extend(p); } catch {} });
+        m.fitBounds(b, { padding: 50 });
       } catch (e) {
         console.error('Routing error:', e);
       }
@@ -130,16 +138,18 @@ const MapboxMap = ({
 
   // Update current location marker
   useEffect(() => {
-    if (!mapLoaded || !map.current || !currentLocation) return;
+    if (!mapLoaded) return;
+    const m = map.current;
+    if (!m || !isValidLngLat(currentLocation)) return;
 
     // Create/Update current marker without removing others
     if (!currentMarkerRef.current) {
-      currentMarkerRef.current = new mapboxgl.Marker({ color: '#00e0ff', scale: 1.2 }).addTo(map.current);
+      currentMarkerRef.current = new mapboxgl.Marker({ color: '#00e0ff', scale: 1.2 }).addTo(m);
     }
     currentMarkerRef.current.setLngLat([currentLocation.lng, currentLocation.lat]);
 
     // Center map on current location gently
-    map.current.easeTo({ center: [currentLocation.lng, currentLocation.lat], zoom: 13, duration: 800 });
+    m.easeTo({ center: [currentLocation.lng, currentLocation.lat], zoom: 13, duration: 800 });
 
   }, [mapLoaded, currentLocation, busNumber]);
 
