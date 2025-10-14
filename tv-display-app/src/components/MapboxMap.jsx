@@ -29,6 +29,7 @@ const MapboxMap = ({
     mapboxgl.accessToken = MAPBOX_ACCESS_TOKEN;
 
     // Initialize map with OpenStreetMap directly to avoid token issues
+    const safeCenter = (isValidLngLat(currentLocation) ? [currentLocation.lng, currentLocation.lat] : [78.9568, 29.2138]);
     map.current = new mapboxgl.Map({
       container: mapContainer.current,
       style: {
@@ -49,7 +50,7 @@ const MapboxMap = ({
           }
         ]
       },
-      center: currentLocation ? [currentLocation.lng, currentLocation.lat] : [78.9568, 29.2138],
+      center: safeCenter,
       zoom: 12,
       attributionControl: false
     });
