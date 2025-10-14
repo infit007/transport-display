@@ -52,11 +52,12 @@ router.post('/public/assign', async (req, res) => {
     if (!Array.isArray(busIds) || busIds.length === 0) return res.status(400).json({ error: 'busIds required' });
     if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'items required' });
 
-    const rows = [];
+    // Build candidate rows from request
+    const candidateRows = [];
     for (const busId of busIds) {
       for (const item of items) {
         if (!item?.url || !item?.type) continue;
-        rows.push({
+        candidateRows.push({
           name: item.name || 'Media',
           type: item.type,
           url: item.url,
@@ -65,24 +66,41 @@ router.post('/public/assign', async (req, res) => {
       }
     }
 
-    if (rows.length === 0) return res.status(400).json({ error: 'No valid assignments' });
+    if (candidateRows.length === 0) return res.status(400).json({ error: 'No valid assignments' });
+
+    // De-duplicate by checking existing assignments for the selected buses and urls
+    const uniqueUrls = Array.from(new Set(items.map((i) => String(i.url))));
+    const { data: existing, error: existingErr } = await supabase
+      .from('media_library')
+      .select('bus_id, url')
+      .in('bus_id', busIds)
+      .in('url', uniqueUrls);
+    if (existingErr) return res.status(500).json({ error: existingErr.message });
+
+    const existingSet = new Set((existing || []).map((r) => `${r.bus_id}|${r.url}`));
+    const rows = candidateRows.filter((r) => !existingSet.has(`${r.bus_id}|${r.url}`));
+
+    // If everything already exists, short-circuit and report
+    if (rows.length === 0) {
+      return res.status(200).json({ inserted: 0, items: [], deduplicated: true });
+    }
 
     const { error, data } = await supabase
       .from('media_library')
       .insert(rows)
       .select('id, name, type, url, bus_id');
     if (error) return res.status(400).json({ error: error.message });
-    
-    // Emit media update event to all connected clients
+
+    // Emit media update event to all connected clients only when new rows were inserted
     if (io && data && data.length > 0) {
-      io.emit('media:update', { 
+      io.emit('media:update', {
         message: 'New media assigned to buses',
         busIds: busIds,
-        mediaCount: data.length 
+        mediaCount: data.length,
       });
     }
-    
-    return res.status(201).json({ inserted: data?.length || 0, items: data });
+
+    return res.status(201).json({ inserted: data?.length || 0, items: data, deduplicated: false });
   } catch (e) {
     return res.status(500).json({ error: e.message });
   }
