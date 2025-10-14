@@ -4,9 +4,10 @@ import { v2 as cloudinary } from 'cloudinary';
 import { createClient } from '@supabase/supabase-js';
 import { authenticate, requireRole } from '../middleware/auth.js';
 
-const router = Router();
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
+export default function createMediaRoutes(io) {
+  const router = Router();
+  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+  const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -70,6 +71,16 @@ router.post('/public/assign', async (req, res) => {
       .insert(rows)
       .select('id, name, type, url, bus_id');
     if (error) return res.status(400).json({ error: error.message });
+    
+    // Emit media update event to all connected clients
+    if (io && data && data.length > 0) {
+      io.emit('media:update', { 
+        message: 'New media assigned to buses',
+        busIds: busIds,
+        mediaCount: data.length 
+      });
+    }
+    
     return res.status(201).json({ inserted: data?.length || 0, items: data });
   } catch (e) {
     return res.status(500).json({ error: e.message });
@@ -95,6 +106,7 @@ router.post('/upload', authenticate, requireRole('admin', 'operator'), upload.si
   }
 });
 
-export default router;
+  return router;
+}
 
 

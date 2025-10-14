@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { tvDisplayAPI } from '../services/api';
 import MapboxMap from './MapboxMap';
+import io from 'socket.io-client';
 
 const Display = ({ busNumber, depot }) => {
   const selectedBusNumber = busNumber || localStorage.getItem('tv_bus_number') || '';
@@ -22,6 +23,7 @@ const Display = ({ busNumber, depot }) => {
   
   const timerRef = useRef(null);
   const journeyRef = useRef(null);
+  const socketRef = useRef(null);
 
   // GPS Journey Simulation
   const startJourneySimulation = (startPoint, endPoint) => {
@@ -264,9 +266,11 @@ const Display = ({ busNumber, depot }) => {
             setMediaContent(playlist[playlistIndex] || playlist[0]);
           }
         } else {
+          // New playlist - reset to first item
           setPlaylist(normalizedList);
           setPlaylistIndex(0);
           setMediaContent(normalizedList[0] || null);
+          console.log('New playlist loaded:', normalizedList.length, 'items');
         }
       } else {
         console.log('No media found, using demo fallback');
@@ -296,29 +300,34 @@ const Display = ({ busNumber, depot }) => {
   const advancePlaylist = () => {
     if (!playlist || playlist.length === 0) return;
     const next = (playlistIndex + 1) % playlist.length;
+    console.log(`Advancing playlist: ${playlistIndex} -> ${next} (${playlist.length} total items)`);
     setPlaylistIndex(next);
     setMediaContent(playlist[next]);
   };
 
-  // For images, rotate every 8 seconds
+  // Auto-advance media: images every 8 seconds, videos every 30 seconds
   useEffect(() => {
-    if (!mediaContent) return;
+    if (!mediaContent || !playlist || playlist.length <= 1) return;
+    
     if (imageTimerRef.current) {
       clearTimeout(imageTimerRef.current);
       imageTimerRef.current = null;
     }
-    if (mediaContent.type === 'image') {
-      imageTimerRef.current = setTimeout(() => {
-        advancePlaylist();
-      }, 8000);
-    }
+    
+    // Set timer based on media type
+    const timerDuration = mediaContent.type === 'image' ? 8000 : 30000; // 8s for images, 30s for videos
+    
+    imageTimerRef.current = setTimeout(() => {
+      advancePlaylist();
+    }, timerDuration);
+    
     return () => {
       if (imageTimerRef.current) {
         clearTimeout(imageTimerRef.current);
         imageTimerRef.current = null;
       }
     };
-  }, [mediaContent, playlistIndex]);
+  }, [mediaContent, playlistIndex, playlist]);
 
   // Load news ticker
   const loadNewsTicker = async () => {
@@ -338,20 +347,57 @@ const Display = ({ busNumber, depot }) => {
     }
   };
 
+  // Initialize Socket.io connection for real-time updates
+  useEffect(() => {
+    const backendUrl = 'https://transport-display.onrender.com';
+    socketRef.current = io(backendUrl, { 
+      transports: ['websocket'], 
+      autoConnect: true 
+    });
+
+    // Listen for media updates
+    socketRef.current.on('media:update', (data) => {
+      console.log('Received media update:', data);
+      // Force reload media content when new media is pushed
+      loadMediaContent();
+    });
+
+    // Listen for news updates
+    socketRef.current.on('news:broadcast', (payload) => {
+      console.log('Received news update:', payload);
+      // Check if this news is targeted to this bus/depot
+      const targets = payload?.targets || {};
+      const deviceIds = Array.isArray(targets.deviceIds) ? targets.deviceIds : [];
+      const depots = Array.isArray(targets.depots) ? targets.depots : [];
+      
+      const matchesDevice = deviceIds.length === 0 || 
+        (selectedBusNumber && deviceIds.includes(selectedBusNumber));
+      const matchesDepot = depots.length === 0 || 
+        (selectedDepot && depots.includes(selectedDepot));
+      
+      if (matchesDevice && matchesDepot) {
+        setTicker(payload?.title || payload?.content || 'Welcome to FleetSignage TV Display');
+      }
+    });
+
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+      }
+    };
+  }, [selectedBusNumber, selectedDepot]);
+
   useEffect(() => {
     loadBusData();
     loadMediaContent();
     loadNewsTicker();
 
-    // Refresh data every 30 seconds
+    // Refresh data every 10 seconds for faster updates
     timerRef.current = setInterval(() => {
       loadBusData();
       loadMediaContent();
       loadNewsTicker();
-    }, 30000);
-
-    // Note: Real-time updates are handled by the backend via Socket.io
-    // The backend will push updates to connected clients
+    }, 10000);
 
     return () => {
       clearInterval(timerRef.current);
@@ -361,7 +407,16 @@ const Display = ({ busNumber, depot }) => {
     };
   }, [selectedBusNumber]);
 
-  console.log('Display component rendering with:', { busNumber: selectedBusNumber, depot: selectedDepot, nextStop, finalDestination, ticker });
+  console.log('Display component rendering with:', { 
+    busNumber: selectedBusNumber, 
+    depot: selectedDepot, 
+    nextStop, 
+    finalDestination, 
+    ticker,
+    playlistLength: playlist?.length || 0,
+    currentIndex: playlistIndex,
+    currentMedia: mediaContent?.name || 'None'
+  });
 
   return (
     <div className="display-container">
