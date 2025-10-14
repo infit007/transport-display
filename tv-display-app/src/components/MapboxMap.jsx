@@ -12,6 +12,7 @@ const MapboxMap = ({
   const mapContainer = useRef(null);
   const map = useRef(null);
   const [mapLoaded, setMapLoaded] = useState(false);
+  const currentMarkerRef = useRef(null);
 
   // You'll need to get a free Mapbox access token from https://mapbox.com
   // For now, using a demo token - replace with your own
@@ -69,11 +70,14 @@ const MapboxMap = ({
     };
   }, []);
 
-  // Add directions and route when map is loaded and we have start/end locations
+  // Add realistic road route using OSRM whenever current/end change
   useEffect(() => {
-    if (!mapLoaded || !map.current || !startLocation || !endLocation) return;
+    if (!mapLoaded || !map.current || !endLocation) return;
+    // Prefer currentLocation (device). Fallback to startLocation if not present
+    const start = currentLocation || startLocation;
+    if (!start) return;
 
-    const addDirections = async () => {
+    const drawRoute = async () => {
       try {
         // Remove existing route if any
         if (map.current.getSource('route')) {
@@ -81,86 +85,61 @@ const MapboxMap = ({
           map.current.removeSource('route');
         }
 
-        // Skip Mapbox Directions API to avoid 403 errors
-        // Add a simple straight line between start and end points
-        console.log('Adding straight line route to avoid API errors');
-        
-        map.current.addSource('route', {
-          type: 'geojson',
-          data: {
-            type: 'Feature',
-            properties: {},
-            geometry: {
-              type: 'LineString',
-              coordinates: [
-                [startLocation.lng, startLocation.lat],
-                [endLocation.lng, endLocation.lat]
-              ]
+        const url = `https://router.project-osrm.org/route/v1/driving/${start.lng},${start.lat};${endLocation.lng},${endLocation.lat}?overview=full&geometries=geojson`;
+        const res = await fetch(url);
+        const json = await res.json();
+        const coords = json?.routes?.[0]?.geometry?.coordinates;
+
+        if (!Array.isArray(coords) || coords.length < 2) {
+          console.warn('OSRM returned no route, fallback to straight line');
+          map.current.addSource('route', {
+            type: 'geojson',
+            data: {
+              type: 'Feature',
+              properties: {},
+              geometry: { type: 'LineString', coordinates: [[start.lng, start.lat],[endLocation.lng, endLocation.lat]] }
             }
-          }
-        });
+          });
+        } else {
+          map.current.addSource('route', {
+            type: 'geojson',
+            data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } }
+          });
+        }
 
         map.current.addLayer({
           id: 'route',
           type: 'line',
           source: 'route',
-          layout: {
-            'line-join': 'round',
-            'line-cap': 'round'
-          },
-          paint: {
-            'line-color': '#00e0ff',
-            'line-width': 4,
-            'line-opacity': 0.8
-          }
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: { 'line-color': '#00e0ff', 'line-width': 4, 'line-opacity': 0.85 }
         });
 
-        // Fit map to show both points
-        const bounds = new mapboxgl.LngLatBounds(
-          [startLocation.lng, startLocation.lat],
-          [endLocation.lng, endLocation.lat]
-        );
-        map.current.fitBounds(bounds, { padding: 50 });
-
-        console.log('Added straight line route successfully');
-      } catch (error) {
-        console.error('Error adding route:', error);
+        // Fit bounds to route
+        const b = new mapboxgl.LngLatBounds();
+        const points = (map.current.getSource('route')._data.geometry.coordinates);
+        points.forEach(p => b.extend(p));
+        map.current.fitBounds(b, { padding: 50 });
+      } catch (e) {
+        console.error('Routing error:', e);
       }
     };
 
-    addDirections();
-  }, [mapLoaded, startLocation, endLocation]);
+    drawRoute();
+  }, [mapLoaded, currentLocation, startLocation, endLocation]);
 
   // Update current location marker
   useEffect(() => {
     if (!mapLoaded || !map.current || !currentLocation) return;
 
-    // Remove existing markers
-    const existingMarkers = document.querySelectorAll('.mapboxgl-marker');
-    existingMarkers.forEach(marker => marker.remove());
+    // Create/Update current marker without removing others
+    if (!currentMarkerRef.current) {
+      currentMarkerRef.current = new mapboxgl.Marker({ color: '#00e0ff', scale: 1.2 }).addTo(map.current);
+    }
+    currentMarkerRef.current.setLngLat([currentLocation.lng, currentLocation.lat]);
 
-    // Add current location marker
-    const marker = new mapboxgl.Marker({
-      color: '#00e0ff',
-      scale: 1.2
-    })
-      .setLngLat([currentLocation.lng, currentLocation.lat])
-      .addTo(map.current);
-
-    // Add popup with bus info
-    const popup = new mapboxgl.Popup({ offset: 25 })
-      .setHTML(`
-        <div style="color: #000; font-size: 12px;">
-          <strong>Bus ${busNumber}</strong><br/>
-          ${currentLocation.lat.toFixed(4)}, ${currentLocation.lng.toFixed(4)}
-        </div>
-      `);
-    
-    marker.setPopup(popup);
-
-    // Center map on current location
-    map.current.setCenter([currentLocation.lng, currentLocation.lat]);
-    map.current.setZoom(13);
+    // Center map on current location gently
+    map.current.easeTo({ center: [currentLocation.lng, currentLocation.lat], zoom: 13, duration: 800 });
 
   }, [mapLoaded, currentLocation, busNumber]);
 
