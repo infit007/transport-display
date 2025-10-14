@@ -23,12 +23,21 @@ router.get('/', authenticate, async (_req, res) => {
 
 // Public endpoint for TV Display App (no auth required)
 router.get('/public', async (_req, res) => {
+  // Return a unique list by URL so the same asset isn't repeated in selectors
   const { data, error } = await supabase
     .from('media_library')
-    .select('url, type, name, bus_id')
+    .select('url, type, name')
     .order('created_at', { ascending: false });
   if (error) return res.status(500).json({ error: error.message });
-  return res.json(data);
+  const seen = new Set();
+  const unique = [];
+  for (const row of data || []) {
+    if (row?.url && !seen.has(row.url)) {
+      seen.add(row.url);
+      unique.push({ url: row.url, type: row.type, name: row.name });
+    }
+  }
+  return res.json(unique);
 });
 
 // Public endpoint to get media for specific bus

@@ -79,7 +79,24 @@ const Media = () => {
         file_size: item.file_size
       })) || [];
 
-      setMediaItems(formattedData);
+      // De-duplicate by URL so the same file shows once in the library UI.
+      // We keep the most recent row per URL and surface one bus_number if present.
+      const byUrl = new Map<string, MediaItem>();
+      for (const item of formattedData) {
+        const existing = byUrl.get(item.url);
+        if (!existing) {
+          byUrl.set(item.url, item);
+          continue;
+        }
+        // Prefer the most recently created
+        const a = new Date(existing.created_at).getTime();
+        const b = new Date(item.created_at).getTime();
+        if (b > a) {
+          byUrl.set(item.url, item);
+        }
+      }
+
+      setMediaItems(Array.from(byUrl.values()));
     } catch (error) {
       console.error('Error fetching media items:', error);
       toast.error("Failed to load media items");
