@@ -72,7 +72,8 @@ const MapboxMap = ({
 
   // Add directions and route when map is loaded and we have start/end locations
   useEffect(() => {
-    if (!mapLoaded || !map.current || !startLocation || !endLocation) return;
+    const hasCoords = (p) => p && typeof p.lng === 'number' && typeof p.lat === 'number';
+    if (!mapLoaded || !map.current || !hasCoords(startLocation) || !hasCoords(endLocation)) return;
 
     const addDirections = async () => {
       try {
@@ -134,7 +135,8 @@ const MapboxMap = ({
 
   // Update current location marker
   useEffect(() => {
-    if (!mapLoaded || !map.current || !currentLocation) return;
+    const hasCoords = (p) => p && typeof p.lng === 'number' && typeof p.lat === 'number';
+    if (!mapLoaded || !map.current || !hasCoords(currentLocation)) return;
     // Maintain a single marker instance for current device location
     if (!userMarkerRef.current) {
       userMarkerRef.current = new mapboxgl.Marker({ color: '#00e0ff', scale: 1.2 });
@@ -143,7 +145,9 @@ const MapboxMap = ({
     userMarkerRef.current.setLngLat([currentLocation.lng, currentLocation.lat]);
 
     // Center map on current location
-    map.current.setCenter([currentLocation.lng, currentLocation.lat]);
+    try {
+      map.current.setCenter([currentLocation.lng, currentLocation.lat]);
+    } catch {}
     map.current.setZoom(13);
 
   }, [mapLoaded, currentLocation, busNumber]);
@@ -152,7 +156,8 @@ const MapboxMap = ({
   useEffect(() => {
     if (!mapLoaded || !map.current) return;
     if (!('geolocation' in navigator)) return;
-    if (!endLocation) return;
+    const hasCoords = (p) => p && typeof p.lng === 'number' && typeof p.lat === 'number';
+    if (!hasCoords(endLocation)) return;
 
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
