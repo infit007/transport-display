@@ -110,6 +110,24 @@ router.post('/upload', authenticate, requireRole('admin', 'operator'), upload.si
   try {
     const { title, type } = req.body;
     if (!req.file) return res.status(400).json({ error: 'Missing file' });
+    // De-duplication: if a file with same title and approx. size already exists, reuse it
+    const sizeMb = req.file.size / (1024 * 1024);
+    const { data: existingAsset, error: findErr } = await supabase
+      .from('media_content')
+      .select('*')
+      .ilike('title', title || '')
+      .limit(10);
+    if (findErr) {
+      // continue with upload on read error
+    } else if (existingAsset && existingAsset.length) {
+      const match = existingAsset.find((row) => {
+        const diff = Math.abs((row.file_size_mb || 0) - sizeMb);
+        return diff <= 0.05; // within ~50KB for typical assets
+      });
+      if (match) {
+        return res.status(200).json(match);
+      }
+    }
     const uploaded = await cloudinary.uploader.upload_stream({ resource_type: 'auto', folder: 'fleetsignage' }, async (err, result) => {
       if (err || !result) return res.status(500).json({ error: err?.message || 'Upload failed' });
       const insert = await supabase.from('media_content').insert([{ title, type, file_url: result.secure_url, file_size_mb: req.file.size / (1024 * 1024) }]).select('*').single();
