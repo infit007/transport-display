@@ -253,7 +253,16 @@ const Display = ({ busNumber, depot }) => {
           return { type, url: m.url, name: m.name || 'Media' };
         };
 
-        const normalizedList = (list.length ? list : [media]).map(normalize).filter(x => x.url);
+        // Normalize and de-duplicate by URL while preserving original list order
+        const rawList = (list.length ? list : [media]).map(normalize).filter(x => x.url);
+        const seen = new Set();
+        const normalizedList = [];
+        for (const item of rawList) {
+          if (!seen.has(item.url)) {
+            seen.add(item.url);
+            normalizedList.push(item);
+          }
+        }
 
         // If playlist hasn't changed (same urls order), keep current index and item
         const currentUrls = (playlist || []).map(i => i.url);
@@ -305,7 +314,7 @@ const Display = ({ busNumber, depot }) => {
     setMediaContent(playlist[next]);
   };
 
-  // Auto-advance media: images every 8 seconds, videos every 30 seconds
+  // Auto-advance media: images rotate every 8s; videos advance only when ended
   useEffect(() => {
     if (!mediaContent || !playlist || playlist.length <= 1) return;
     
@@ -314,12 +323,11 @@ const Display = ({ busNumber, depot }) => {
       imageTimerRef.current = null;
     }
     
-    // Set timer based on media type
-    const timerDuration = mediaContent.type === 'image' ? 8000 : 30000; // 8s for images, 30s for videos
-    
-    imageTimerRef.current = setTimeout(() => {
-      advancePlaylist();
-    }, timerDuration);
+    if (mediaContent.type === 'image') {
+      imageTimerRef.current = setTimeout(() => {
+        advancePlaylist();
+      }, 8000);
+    }
     
     return () => {
       if (imageTimerRef.current) {
@@ -427,16 +435,32 @@ const Display = ({ busNumber, depot }) => {
           {console.log('Rendering media:', mediaContent)}
           {mediaContent?.type === 'video' ? (
             <video 
-              key={mediaContent.url}
+              key={`${mediaContent.url}-${playlistIndex}`}
               src={mediaContent.url} 
               className="media-content"
               autoPlay 
               muted 
               playsInline 
+              preload="auto"
+              controls={false}
               onEnded={advancePlaylist}
               onError={(e) => { console.error('Video load error:', e); advancePlaylist(); }}
-              onLoadStart={() => console.log('Video loading started')}
-              onCanPlay={() => console.log('Video can play')}
+              onLoadedMetadata={(e) => {
+                try {
+                  const v = e.currentTarget;
+                  // Ensure playback from start and remove any stalled state
+                  v.currentTime = 0;
+                } catch {}
+              }}
+              onCanPlay={(e) => {
+                try {
+                  const v = e.currentTarget;
+                  const playPromise = v.play();
+                  if (playPromise && typeof playPromise.then === 'function') {
+                    playPromise.catch(() => {});
+                  }
+                } catch {}
+              }}
             />
           ) : (
             <img 
