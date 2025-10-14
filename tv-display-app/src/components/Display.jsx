@@ -24,6 +24,7 @@ const Display = ({ busNumber, depot }) => {
   const timerRef = useRef(null);
   const journeyRef = useRef(null);
   const socketRef = useRef(null);
+  const videoRef = useRef(null);
 
   // GPS Journey Simulation
   const startJourneySimulation = (startPoint, endPoint) => {
@@ -337,6 +338,31 @@ const Display = ({ busNumber, depot }) => {
     };
   }, [mediaContent, playlistIndex, playlist]);
 
+  // Safety: ensure videos advance even if 'ended' doesn't fire (some encoders stall near the end)
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v || mediaContent?.type !== 'video') return;
+    const onTime = () => {
+      try {
+        if (!isFinite(v.duration) || v.duration === 0) return;
+        if (v.currentTime >= v.duration - 0.25) {
+          advancePlaylist();
+        }
+      } catch {}
+    };
+    const onStall = () => onTime();
+    v.addEventListener('timeupdate', onTime);
+    v.addEventListener('stalled', onStall);
+    v.addEventListener('suspend', onStall);
+    return () => {
+      try {
+        v.removeEventListener('timeupdate', onTime);
+        v.removeEventListener('stalled', onStall);
+        v.removeEventListener('suspend', onStall);
+      } catch {}
+    };
+  }, [mediaContent?.url, playlistIndex]);
+
   // Load news ticker
   const loadNewsTicker = async () => {
     try {
@@ -400,12 +426,11 @@ const Display = ({ busNumber, depot }) => {
     loadMediaContent();
     loadNewsTicker();
 
-    // Refresh data every 10 seconds for faster updates
+    // Refresh data periodically for resiliency (socket handles immediate media changes)
     timerRef.current = setInterval(() => {
       loadBusData();
-      loadMediaContent();
       loadNewsTicker();
-    }, 10000);
+    }, 60000);
 
     return () => {
       clearInterval(timerRef.current);
@@ -443,6 +468,7 @@ const Display = ({ busNumber, depot }) => {
               playsInline 
               preload="auto"
               controls={false}
+              ref={videoRef}
               onEnded={advancePlaylist}
               onError={(e) => { console.error('Video load error:', e); advancePlaylist(); }}
               onLoadedMetadata={(e) => {
