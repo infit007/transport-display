@@ -40,11 +40,25 @@ self.addEventListener('message', (event) => {
     const data = event?.data || {};
     if (data && data.type === 'CACHE_URLS' && Array.isArray(data.urls) && data.urls.length) {
       event.waitUntil((async () => {
-        const cache = await caches.open('pre-warm');
-        const requests = data.urls
-          .filter(Boolean)
-          .map((u) => new Request(u, { mode: 'no-cors' }));
-        try { await cache.addAll(requests); } catch {}
+        const videoExt = ['.mp4', '.webm', '.ogg', '.avi', '.mov'];
+        const imageExt = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+        for (const url of data.urls.filter(Boolean)) {
+          try {
+            const lower = url.toLowerCase();
+            const isVideo = videoExt.some(e => lower.includes(e));
+            const isImage = imageExt.some(e => lower.includes(e));
+            const cacheName = isVideo ? 'videos' : (isImage ? 'images' : 'runtime');
+            const cache = await caches.open(cacheName);
+            const req = new Request(url, { mode: 'no-cors' });
+            const already = await cache.match(req);
+            if (!already) {
+              const res = await fetch(req).catch(() => null);
+              if (res) {
+                try { await cache.put(req, res.clone()); } catch {}
+              }
+            }
+          } catch {}
+        }
       })());
     }
   } catch {}
