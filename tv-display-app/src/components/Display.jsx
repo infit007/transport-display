@@ -18,6 +18,7 @@ const Display = ({ busNumber, depot }) => {
   const [mediaContent, setMediaContent] = useState(null);
   const [playlist, setPlaylist] = useState([]);
   const [playlistIndex, setPlaylistIndex] = useState(0);
+  const prevPlaylistRef = useRef([]);
   const imageTimerRef = useRef(null);
   const [journeyProgress, setJourneyProgress] = useState(0); // 0 to 1
   const [usingDeviceGps, setUsingDeviceGps] = useState(false);
@@ -134,6 +135,19 @@ const Display = ({ busNumber, depot }) => {
       } else if ('serviceWorker' in navigator) {
         navigator.serviceWorker.getRegistration().then((reg) => {
           try { reg?.active?.postMessage({ type: 'CACHE_URLS', urls }); } catch {}
+        });
+      }
+    } catch {}
+  };
+
+  const purgeCache = (urls) => {
+    try {
+      if (!Array.isArray(urls) || !urls.length) return;
+      if (navigator?.serviceWorker?.controller) {
+        navigator.serviceWorker.controller.postMessage({ type: 'PURGE_URLS', urls });
+      } else if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistration().then((reg) => {
+          try { reg?.active?.postMessage({ type: 'PURGE_URLS', urls }); } catch {}
         });
       }
     } catch {}
@@ -374,6 +388,14 @@ const Display = ({ busNumber, depot }) => {
           setPlaylistIndex(0);
           setMediaContent(normalizedList[0] || null);
           console.log('New playlist loaded:', normalizedList.length, 'items');
+          // Purge any media that was removed from the playlist
+          try {
+            const prev = Array.isArray(prevPlaylistRef.current) ? prevPlaylistRef.current : [];
+            const newSet = new Set(normalizedList.map(i => i.url));
+            const removed = prev.filter(u => !newSet.has(u));
+            if (removed.length) purgeCache(removed);
+          } catch {}
+          prevPlaylistRef.current = normalizedList.map(i => i.url);
         }
         try { window.localStorage.setItem('last_media_playlist', JSON.stringify(normalizedList)); } catch {}
         try { warmupCache(normalizedList.map(i => i.url).filter(Boolean)); } catch {}
@@ -501,6 +523,10 @@ const Display = ({ busNumber, depot }) => {
     // Listen for media updates
     socketRef.current.on('media:update', (data) => {
       console.log('Received media update:', data);
+      try {
+        const currentUrls = Array.isArray(playlist) ? playlist.map(i => i?.url).filter(Boolean) : [];
+        if (currentUrls.length) purgeCache(currentUrls);
+      } catch {}
       // Force reload media content when new media is pushed
       loadMediaContent();
     });
@@ -519,7 +545,9 @@ const Display = ({ busNumber, depot }) => {
         (selectedDepot && depots.includes(selectedDepot));
       
       if (matchesDevice && matchesDepot) {
-        setTicker(payload?.title || payload?.content || 'Welcome to FleetSignage TV Display');
+        const text = payload?.title || payload?.content || 'Welcome to FleetSignage TV Display';
+        setTicker(text);
+        try { window.localStorage.setItem('last_news', text); } catch {}
       }
     });
 
