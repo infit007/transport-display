@@ -86,6 +86,20 @@ const Display = ({ busNumber, depot }) => {
     }, 1000); // Update every second
   };
 
+  // Warm-up service worker cache with a list of URLs
+  const warmupCache = (urls) => {
+    try {
+      if (!Array.isArray(urls) || urls.length === 0) return;
+      if (navigator?.serviceWorker?.controller) {
+        navigator.serviceWorker.controller.postMessage({ type: 'CACHE_URLS', urls });
+      } else if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistration().then((reg) => {
+          try { reg?.active?.postMessage({ type: 'CACHE_URLS', urls }); } catch {}
+        });
+      }
+    } catch {}
+  };
+
   // Prefer real device GPS when available: follow device and route from current position
   useEffect(() => {
     if (!('geolocation' in navigator)) return;
@@ -323,6 +337,7 @@ const Display = ({ busNumber, depot }) => {
           console.log('New playlist loaded:', normalizedList.length, 'items');
         }
         try { window.localStorage.setItem('last_media_playlist', JSON.stringify(normalizedList)); } catch {}
+        try { warmupCache(normalizedList.map(i => i.url).filter(Boolean)); } catch {}
         try {
           for (const item of normalizedList) {
             if (item?.url) {

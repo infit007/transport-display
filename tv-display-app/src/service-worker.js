@@ -22,6 +22,22 @@ self.addEventListener('activate', event => {
 cleanupOutdatedCaches();
 precacheAndRoute(self.__WB_MANIFEST || []);
 
+// Accept warm-up caching requests from the app
+self.addEventListener('message', (event) => {
+  try {
+    const data = event?.data || {};
+    if (data && data.type === 'CACHE_URLS' && Array.isArray(data.urls) && data.urls.length) {
+      event.waitUntil((async () => {
+        const cache = await caches.open('pre-warm');
+        const requests = data.urls
+          .filter(Boolean)
+          .map((u) => new Request(u, { mode: 'no-cors' }));
+        try { await cache.addAll(requests); } catch {}
+      })());
+    }
+  } catch {}
+});
+
 // App shell: serve HTML with NetworkFirst so it works offline
 registerRoute(
   ({ request }) => request.mode === 'navigate',
