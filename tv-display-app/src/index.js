@@ -6,11 +6,14 @@ import './styles.css';
 const root = createRoot(document.getElementById('root'));
 root.render(<App />);
 
-// Register service worker (workbox InjectManifest expects this filename)
+// Register service worker early (Workbox InjectManifest outputs service-worker.js at site root)
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
+  try {
     navigator.serviceWorker.register('/service-worker.js').catch(() => {});
-  });
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      try { window.location.reload(); } catch {}
+    });
+  } catch {}
 }
 
 

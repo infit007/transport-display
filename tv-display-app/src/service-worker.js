@@ -19,6 +19,18 @@ self.addEventListener('activate', event => {
   event.waitUntil(self.clients.claim());
 });
 
+// Pre-cache the HTML shell so navigations work offline even on first reload
+self.addEventListener('install', (event) => {
+  event.waitUntil((async () => {
+    try {
+      const cache = await caches.open('html-shell');
+      // Use cache: 'reload' to bypass any HTTP caches
+      await cache.add(new Request('/index.html', { cache: 'reload' }));
+      await cache.add(new Request('/', { cache: 'reload' }));
+    } catch {}
+  })());
+});
+
 cleanupOutdatedCaches();
 precacheAndRoute(self.__WB_MANIFEST || []);
 
@@ -38,17 +50,24 @@ self.addEventListener('message', (event) => {
   } catch {}
 });
 
-// App shell: serve HTML with NetworkFirst so it works offline
-registerRoute(
-  ({ request }) => request.mode === 'navigate',
-  new NetworkFirst({
+// App shell: serve HTML with NetworkFirst + fallback to cached index.html when offline
+registerRoute(({ request }) => request.mode === 'navigate', async ({ request, event }) => {
+  const strategy = new NetworkFirst({
     cacheName: 'html-shell',
     networkTimeoutSeconds: 3,
-    plugins: [
-      new ExpirationPlugin({ maxEntries: 10, maxAgeSeconds: 7 * 24 * 60 * 60 })
-    ],
-  })
-);
+    plugins: [new ExpirationPlugin({ maxEntries: 10, maxAgeSeconds: 7 * 24 * 60 * 60 })]
+  });
+  try {
+    return await strategy.handle({ request, event });
+  } catch {
+    try {
+      const cache = await caches.open('html-shell');
+      const cached = await cache.match('/index.html');
+      if (cached) return cached;
+    } catch {}
+    return Response.error();
+  }
+});
 
 // Cache API content with network-first strategy
 registerRoute(
