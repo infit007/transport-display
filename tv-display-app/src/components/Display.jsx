@@ -28,6 +28,7 @@ const Display = ({ busNumber, depot }) => {
   const journeyRef = useRef(null);
   const socketRef = useRef(null);
   const videoRef = useRef(null);
+  const retryRef = useRef({});
 
   // GPS Journey Simulation
   const startJourneySimulation = (startPoint, endPoint) => {
@@ -86,6 +87,34 @@ const Display = ({ busNumber, depot }) => {
         progress = 0;
       }
     }, 1000); // Update every second
+  };
+
+  // Retry current video with cache-busting; skip after a few attempts
+  const retryCurrentVideo = () => {
+    try {
+      const item = playlist[playlistIndex];
+      if (!item || item.type !== 'video') { advancePlaylist(); return; }
+      const url = item.url;
+      const count = (retryRef.current[url] || 0) + 1;
+      retryRef.current[url] = count;
+      if (count > 3) {
+        console.warn('Skipping video after retries:', url);
+        advancePlaylist();
+        return;
+      }
+      // Ask SW to re-cache this URL
+      try { warmupCache([url]); } catch {}
+      // Force a revalidation by appending a transient query param
+      const bust = `${url}${url.includes('?') ? '&' : '?'}_rb=${Date.now()}`;
+      const newList = [...playlist];
+      newList[playlistIndex] = { ...item, url: bust };
+      setPlaylist(newList);
+      setMediaContent({ ...item, url: bust });
+      console.log('Retrying video', count, '->', bust);
+    } catch (e) {
+      console.error('Retry handler error', e);
+      advancePlaylist();
+    }
   };
 
   // Ensure a URL is cached in the SW cache buckets
@@ -652,7 +681,13 @@ const Display = ({ busNumber, depot }) => {
               crossOrigin="anonymous"
               ref={videoRef}
               onEnded={advancePlaylist}
-              onError={(e) => { console.error('Video load error:', e); advancePlaylist(); }}
+              onError={(e) => {
+                try {
+                  const err = e?.currentTarget?.error;
+                  console.error('Video load error:', err ? `${err.code || ''}` : e);
+                } catch {}
+                retryCurrentVideo();
+              }}
               onLoadedMetadata={(e) => {
                 try {
                   const v = e.currentTarget;

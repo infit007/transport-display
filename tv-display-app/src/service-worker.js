@@ -133,7 +133,7 @@ registerRoute(
 
 // Cache images with stale-while-revalidate so updates overwrite cached content when online
 registerRoute(
-  ({ request }) => request.destination === 'image',
+  ({ request, url }) => request.destination === 'image' || /\.(png|jpe?g|gif|webp|svg)(\?.*)?$/i.test(url.pathname),
   new StaleWhileRevalidate({
     cacheName: 'images',
     plugins: [
@@ -144,7 +144,7 @@ registerRoute(
 
 // Cache videos with stale-while-revalidate + range support so updates overwrite cached content when online
 registerRoute(
-  ({ request }) => request.destination === 'video',
+  ({ request, url }) => request.destination === 'video' || /\.(mp4|webm|ogg|avi|mov)(\?.*)?$/i.test(url.pathname),
   new StaleWhileRevalidate({
     cacheName: 'videos',
     plugins: [
