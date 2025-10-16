@@ -20,7 +20,7 @@ module.exports = {
       directory: path.join(__dirname, 'public'),
       publicPath: ''
     },
-    port: 8082,
+    port: 8080,
     historyApiFallback: true,
     host: '0.0.0.0',
     allowedHosts: 'all',

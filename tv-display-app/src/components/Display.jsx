@@ -156,6 +156,7 @@ const Display = ({ busNumber, depot }) => {
         setBusData(busData);
         setNextStop(busData.start_point || 'Loading...');
         setFinalDestination(busData.end_point || 'Loading...');
+        try { window.localStorage.setItem('last_bus_data', JSON.stringify(busData)); } catch {}
         
         // Set start and end locations with coordinates
         // You can customize these coordinates based on your actual bus stops
@@ -194,17 +195,25 @@ const Display = ({ busNumber, depot }) => {
       }
     } catch (error) {
       console.error('Error loading bus data:', error);
-      // Use hardcoded fallback on complete failure
-      setBusData({
-        bus_number: selectedBusNumber || 'UK-06-J-9102',
-        route_name: 'Kashipur - Jaspur',
-        start_point: 'Kashipur',
-        end_point: 'Jaspur',
-        depo: 'Kashipur Depot'
-      });
-      setNextStop('Kashipur');
-      setFinalDestination('Jaspur');
-      setCurrentLocation({ lat: 29.2138, lng: 78.9568 });
+      let cached = null;
+      try { cached = JSON.parse(window.localStorage.getItem('last_bus_data') || 'null'); } catch {}
+      if (cached) {
+        setBusData(cached);
+        setNextStop(cached.start_point || 'Loading...');
+        setFinalDestination(cached.end_point || 'Loading...');
+        setCurrentLocation({ lat: 29.2138, lng: 78.9568 });
+      } else {
+        setBusData({
+          bus_number: selectedBusNumber || 'UK-06-J-9102',
+          route_name: 'Kashipur - Jaspur',
+          start_point: 'Kashipur',
+          end_point: 'Jaspur',
+          depo: 'Kashipur Depot'
+        });
+        setNextStop('Kashipur');
+        setFinalDestination('Jaspur');
+        setCurrentLocation({ lat: 29.2138, lng: 78.9568 });
+      }
     }
   };
 
@@ -313,6 +322,14 @@ const Display = ({ busNumber, depot }) => {
           setMediaContent(normalizedList[0] || null);
           console.log('New playlist loaded:', normalizedList.length, 'items');
         }
+        try { window.localStorage.setItem('last_media_playlist', JSON.stringify(normalizedList)); } catch {}
+        try {
+          for (const item of normalizedList) {
+            if (item?.url) {
+              fetch(item.url, { mode: 'no-cors', cache: 'no-store' }).catch(() => {});
+            }
+          }
+        } catch {}
       } else {
         console.log('No media found, using demo fallback');
         // Demo fallback - use a reliable video
@@ -326,14 +343,21 @@ const Display = ({ busNumber, depot }) => {
       }
     } catch (error) {
       console.error('Error loading media:', error);
-      // Demo fallback
-      setMediaContent({
-        type: 'video',
-        url: 'https://www.w3schools.com/html/mov_bbb.mp4',
-        name: 'Demo Video'
-      });
-      setPlaylist([{ type: 'video', url: 'https://www.w3schools.com/html/mov_bbb.mp4', name: 'Demo Video' }]);
-      setPlaylistIndex(0);
+      let cached = null;
+      try { cached = JSON.parse(window.localStorage.getItem('last_media_playlist') || 'null'); } catch {}
+      if (Array.isArray(cached) && cached.length) {
+        setPlaylist(cached);
+        setPlaylistIndex(0);
+        setMediaContent(cached[0]);
+      } else {
+        setMediaContent({
+          type: 'video',
+          url: 'https://www.w3schools.com/html/mov_bbb.mp4',
+          name: 'Demo Video'
+        });
+        setPlaylist([{ type: 'video', url: 'https://www.w3schools.com/html/mov_bbb.mp4', name: 'Demo Video' }]);
+        setPlaylistIndex(0);
+      }
     }
   };
 
@@ -403,12 +427,15 @@ const Display = ({ busNumber, depot }) => {
         const news = newsData[0];
         setTicker(news.title || news.content || 'Welcome to FleetSignage TV Display');
         console.log('Loaded news:', news);
+        try { window.localStorage.setItem('last_news', news.title || news.content || 'Welcome to FleetSignage TV Display'); } catch {}
       } else {
         setTicker('Welcome to FleetSignage TV Display');
       }
     } catch (error) {
       console.error('Error loading news:', error);
-      setTicker('Welcome to FleetSignage TV Display');
+      let cached = null;
+      try { cached = window.localStorage.getItem('last_news'); } catch {}
+      setTicker(cached || 'Welcome to FleetSignage TV Display');
     }
   };
 
