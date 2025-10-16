@@ -515,13 +515,39 @@ const Display = ({ busNumber, depot }) => {
   // Initialize Socket.io connection for real-time updates
   useEffect(() => {
     const backendUrl = 'https://transport-display.onrender.com';
-    socketRef.current = io(backendUrl, { 
-      transports: ['websocket'], 
-      autoConnect: true 
+    socketRef.current = io(backendUrl, {
+      transports: ['websocket', 'polling'],
+      autoConnect: true,
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 10000,
     });
 
-    // Listen for media updates
-    socketRef.current.on('media:update', (data) => {
+    // Basic connection lifecycle logging
+    socketRef.current.on('connect', () => {
+      console.log('Socket connected', socketRef.current.id);
+      try {
+        // Try common subscribe/join patterns so backend can target this device
+        const payload = { busNumber: selectedBusNumber, depot: selectedDepot };
+        socketRef.current.emit('subscribe', payload);
+        socketRef.current.emit('join', payload);
+        socketRef.current.emit('tv:register', payload);
+      } catch {}
+    });
+    socketRef.current.on('disconnect', (reason) => {
+      console.log('Socket disconnected', reason);
+    });
+    socketRef.current.on('connect_error', (err) => {
+      console.log('Socket connect_error', err?.message || err);
+    });
+    socketRef.current.on('error', (err) => {
+      console.log('Socket error', err?.message || err);
+    });
+
+    // Helper to react to any media update signal
+    const onMediaUpdate = (data) => {
       console.log('Received media update:', data);
       try {
         const currentUrls = Array.isArray(playlist) ? playlist.map(i => i?.url).filter(Boolean) : [];
@@ -529,7 +555,20 @@ const Display = ({ busNumber, depot }) => {
       } catch {}
       // Force reload media content when new media is pushed
       loadMediaContent();
-    });
+      // Extra: try a few more refreshes in the next 20s in case backend is still processing
+      try {
+        let n = 3;
+        const interval = setInterval(() => {
+          if (--n <= 0) { clearInterval(interval); return; }
+          loadMediaContent();
+        }, 5000);
+      } catch {}
+    };
+
+    // Listen for media updates on multiple possible channels
+    socketRef.current.on('media:update', onMediaUpdate);
+    socketRef.current.on('media:refresh', onMediaUpdate);
+    socketRef.current.on('playlist:update', onMediaUpdate);
 
     // Listen for news updates
     socketRef.current.on('news:broadcast', (payload) => {

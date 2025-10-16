@@ -7,7 +7,16 @@ class TVDisplayAPI {
   }
 
   async request(endpoint, options = {}) {
-    const url = `${this.baseURL}${endpoint}`;
+    // Add cache-busting on GETs so updated media/news are fetched fresh
+    let url = `${this.baseURL}${endpoint}`;
+    try {
+      const method = (options.method || 'GET').toUpperCase();
+      if (method === 'GET') {
+        const u = new URL(url);
+        u.searchParams.set('_cb', Date.now().toString());
+        url = u.toString();
+      }
+    } catch {}
     const config = {
       method: 'GET',
       headers: {
