@@ -21,6 +21,7 @@ const Display = ({ busNumber, depot }) => {
   const imageTimerRef = useRef(null);
   const [journeyProgress, setJourneyProgress] = useState(0); // 0 to 1
   const [usingDeviceGps, setUsingDeviceGps] = useState(false);
+  const [offlinePrepared, setOfflinePrepared] = useState(false);
   
   const timerRef = useRef(null);
   const journeyRef = useRef(null);
@@ -84,6 +85,44 @@ const Display = ({ busNumber, depot }) => {
         progress = 0;
       }
     }, 1000); // Update every second
+  };
+
+  // Ensure a URL is cached in the SW cache buckets
+  const cacheMediaUrl = async (url) => {
+    if (!url) return;
+    try {
+      const lower = url.toLowerCase();
+      const isVideo = ['.mp4', '.webm', '.ogg', '.avi', '.mov'].some(e => lower.includes(e));
+      const isImage = ['.jpg', '.jpeg', '.png', '.gif', '.webp'].some(e => lower.includes(e));
+      const cacheName = isVideo ? 'videos' : (isImage ? 'images' : 'runtime');
+      const cache = await caches.open(cacheName);
+      const req = new Request(url, { mode: 'no-cors' });
+      const hit = await cache.match(req);
+      if (!hit) {
+        const res = await fetch(req).catch(() => null);
+        if (res) {
+          try { await cache.put(req, res.clone()); } catch {}
+        }
+      }
+    } catch {}
+  };
+
+  // Ensure the full playlist is cached, with small concurrency to avoid throttling
+  const ensurePlaylistCached = async (urls) => {
+    try {
+      const list = (urls || []).filter(Boolean);
+      const concurrency = 3;
+      let idx = 0;
+      const workers = new Array(concurrency).fill(0).map(async () => {
+        while (idx < list.length) {
+          const cur = list[idx++];
+          await cacheMediaUrl(cur);
+        }
+      });
+      await Promise.all(workers);
+      try { window.localStorage.setItem('offline_playlist', JSON.stringify(list)); } catch {}
+      setOfflinePrepared(true);
+    } catch {}
   };
 
   // Warm-up service worker cache with a list of URLs
@@ -339,11 +378,8 @@ const Display = ({ busNumber, depot }) => {
         try { window.localStorage.setItem('last_media_playlist', JSON.stringify(normalizedList)); } catch {}
         try { warmupCache(normalizedList.map(i => i.url).filter(Boolean)); } catch {}
         try {
-          for (const item of normalizedList) {
-            if (item?.url) {
-              fetch(item.url, { mode: 'no-cors', cache: 'no-store' }).catch(() => {});
-            }
-          }
+          // Start explicit caching and wait until finished for stronger offline guarantees
+          await ensurePlaylistCached(normalizedList.map(i => i.url));
         } catch {}
       } else {
         console.log('No media found, using demo fallback');
@@ -498,6 +534,11 @@ const Display = ({ busNumber, depot }) => {
     loadBusData();
     loadMediaContent();
     loadNewsTicker();
+    // On startup, also ensure any previously saved offline playlist is cached
+    try {
+      const prev = JSON.parse(window.localStorage.getItem('offline_playlist') || '[]');
+      if (Array.isArray(prev) && prev.length) { ensurePlaylistCached(prev); }
+    } catch {}
 
     // Refresh data periodically for resiliency (socket handles immediate media changes)
     timerRef.current = setInterval(() => {
@@ -541,6 +582,7 @@ const Display = ({ busNumber, depot }) => {
               playsInline 
               preload="auto"
               controls={false}
+              crossOrigin="anonymous"
               ref={videoRef}
               onEnded={advancePlaylist}
               onError={(e) => { console.error('Video load error:', e); advancePlaylist(); }}
@@ -566,6 +608,7 @@ const Display = ({ busNumber, depot }) => {
               src={mediaContent?.url || 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=1920&h=1080&fit=crop&crop=center'} 
               className="media-content"
               alt="Display content"
+              crossOrigin="anonymous"
               onError={(e) => console.error('Image load error:', e)}
             />
           )}

@@ -42,14 +42,18 @@ self.addEventListener('message', (event) => {
       event.waitUntil((async () => {
         const videoExt = ['.mp4', '.webm', '.ogg', '.avi', '.mov'];
         const imageExt = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+        const normalize = (u) => {
+          try { const url = new URL(u); url.search = ''; return url.toString(); } catch { return u; }
+        };
         for (const url of data.urls.filter(Boolean)) {
           try {
-            const lower = url.toLowerCase();
+            const norm = normalize(url);
+            const lower = norm.toLowerCase();
             const isVideo = videoExt.some(e => lower.includes(e));
             const isImage = imageExt.some(e => lower.includes(e));
             const cacheName = isVideo ? 'videos' : (isImage ? 'images' : 'runtime');
             const cache = await caches.open(cacheName);
-            const req = new Request(url, { mode: 'no-cors' });
+            const req = new Request(norm, { mode: 'no-cors' });
             const already = await cache.match(req);
             if (!already) {
               const res = await fetch(req).catch(() => null);
@@ -121,9 +125,14 @@ registerRoute(
   new CacheFirst({
     cacheName: 'images',
     plugins: [
+      // Normalize cache key by removing query parameters
+      { cacheKeyWillBeUsed: async ({request}) => {
+          try { const u = new URL(request.url); u.search=''; return u.toString(); } catch { return request.url; }
+        }
+      },
       new ExpirationPlugin({
-        maxEntries: 60,
-        maxAgeSeconds: 30 * 24 * 60 * 60 // 30 days
+        maxEntries: 200,
+        maxAgeSeconds: 60 * 24 * 60 * 60 // 60 days
       })
     ]
   })
@@ -135,8 +144,13 @@ registerRoute(
   new CacheFirst({
     cacheName: 'videos',
     plugins: [
+      // Normalize cache key by removing query parameters
+      { cacheKeyWillBeUsed: async ({request}) => {
+          try { const u = new URL(request.url); u.search=''; return u.toString(); } catch { return request.url; }
+        }
+      },
       new RangeRequestsPlugin(),
-      new ExpirationPlugin({ maxEntries: 20, maxAgeSeconds: 14 * 24 * 60 * 60 })
+      new ExpirationPlugin({ maxEntries: 200, maxAgeSeconds: 60 * 24 * 60 * 60 })
     ]
   })
 );
