@@ -4,10 +4,10 @@ const { InjectManifest } = require('workbox-webpack-plugin');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
 const webpack = require('webpack');
 
-// Only include the InjectManifest plugin in production mode
-const isProduction = process.env.NODE_ENV === 'production';
-
-module.exports = {
+// Export a function so we can read argv.mode to detect production reliably
+module.exports = (env = {}, argv = {}) => {
+  const isProduction = argv.mode === 'production';
+  return {
   entry: './src/index.js',
   output: {
     filename: 'bundle.[contenthash].js',
@@ -62,6 +62,7 @@ module.exports = {
       'process.env.TV_SUPABASE_ANON': JSON.stringify(process.env.TV_SUPABASE_ANON || '')
     }),
   ],
+  };
 };
 
 
