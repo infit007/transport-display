@@ -1,10 +1,10 @@
 /* eslint-disable no-restricted-globals */
+import { precacheAndRoute, cleanupOutdatedCaches } from 'workbox-precaching';
 import { registerRoute } from 'workbox-routing';
 import { StaleWhileRevalidate, NetworkFirst, CacheFirst } from 'workbox-strategies';
 import { ExpirationPlugin } from 'workbox-expiration';
 import { RangeRequestsPlugin } from 'workbox-range-requests';
 import { setCacheNameDetails } from 'workbox-core';
-import { CacheableResponsePlugin } from 'workbox-cacheable-response';
 
 // Set custom cache names
 setCacheNameDetails({
@@ -31,7 +31,8 @@ self.addEventListener('install', (event) => {
   })());
 });
 
-// Not using Workbox precache manifest to avoid runtime errors on hosts that don't process InjectManifest
+cleanupOutdatedCaches();
+precacheAndRoute(self.__WB_MANIFEST || []);
 
 // Accept warm-up caching requests from the app
 self.addEventListener('message', (event) => {
@@ -52,15 +53,12 @@ self.addEventListener('message', (event) => {
             const isImage = imageExt.some(e => lower.includes(e));
             const cacheName = isVideo ? 'videos' : (isImage ? 'images' : 'runtime');
             const cache = await caches.open(cacheName);
-            // Try cors first to get a non-opaque response (better for range), fallback to no-cors
-            const corsReq = new Request(norm, { mode: 'cors', credentials: 'omit' });
-            const nocorsReq = new Request(norm, { mode: 'no-cors' });
-            const already = await cache.match(corsReq) || await cache.match(nocorsReq);
+            const req = new Request(norm, { mode: 'no-cors' });
+            const already = await cache.match(req);
             if (!already) {
-              let res = await fetch(corsReq).catch(() => null);
-              if (!res) res = await fetch(nocorsReq).catch(() => null);
+              const res = await fetch(req).catch(() => null);
               if (res) {
-                try { await cache.put(res.type === 'opaque' ? nocorsReq : corsReq, res.clone()); } catch {}
+                try { await cache.put(req, res.clone()); } catch {}
               }
             }
           } catch {}
@@ -132,7 +130,6 @@ registerRoute(
           try { const u = new URL(request.url); u.search=''; return u.toString(); } catch { return request.url; }
         }
       },
-      new CacheableResponsePlugin({ statuses: [0, 200] }),
       new ExpirationPlugin({
         maxEntries: 200,
         maxAgeSeconds: 60 * 24 * 60 * 60 // 60 days
@@ -152,7 +149,6 @@ registerRoute(
           try { const u = new URL(request.url); u.search=''; return u.toString(); } catch { return request.url; }
         }
       },
-      new CacheableResponsePlugin({ statuses: [0, 200, 206] }),
       new RangeRequestsPlugin(),
       new ExpirationPlugin({ maxEntries: 200, maxAgeSeconds: 60 * 24 * 60 * 60 })
     ]
