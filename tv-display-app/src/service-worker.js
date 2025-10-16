@@ -1,5 +1,4 @@
 /* eslint-disable no-restricted-globals */
-import { precacheAndRoute, cleanupOutdatedCaches } from 'workbox-precaching';
 import { registerRoute } from 'workbox-routing';
 import { StaleWhileRevalidate, NetworkFirst, CacheFirst } from 'workbox-strategies';
 import { ExpirationPlugin } from 'workbox-expiration';
@@ -32,8 +31,7 @@ self.addEventListener('install', (event) => {
   })());
 });
 
-cleanupOutdatedCaches();
-precacheAndRoute(self.__WB_MANIFEST || []);
+// Not using Workbox precache manifest to avoid runtime errors on hosts that don't process InjectManifest
 
 // Accept warm-up caching requests from the app
 self.addEventListener('message', (event) => {
