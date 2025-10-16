@@ -5,6 +5,7 @@ import { StaleWhileRevalidate, NetworkFirst, CacheFirst } from 'workbox-strategi
 import { ExpirationPlugin } from 'workbox-expiration';
 import { RangeRequestsPlugin } from 'workbox-range-requests';
 import { setCacheNameDetails } from 'workbox-core';
+import { CacheableResponsePlugin } from 'workbox-cacheable-response';
 
 // Set custom cache names
 setCacheNameDetails({
@@ -53,12 +54,15 @@ self.addEventListener('message', (event) => {
             const isImage = imageExt.some(e => lower.includes(e));
             const cacheName = isVideo ? 'videos' : (isImage ? 'images' : 'runtime');
             const cache = await caches.open(cacheName);
-            const req = new Request(norm, { mode: 'no-cors' });
-            const already = await cache.match(req);
+            // Try cors first to get a non-opaque response (better for range), fallback to no-cors
+            const corsReq = new Request(norm, { mode: 'cors', credentials: 'omit' });
+            const nocorsReq = new Request(norm, { mode: 'no-cors' });
+            const already = await cache.match(corsReq) || await cache.match(nocorsReq);
             if (!already) {
-              const res = await fetch(req).catch(() => null);
+              let res = await fetch(corsReq).catch(() => null);
+              if (!res) res = await fetch(nocorsReq).catch(() => null);
               if (res) {
-                try { await cache.put(req, res.clone()); } catch {}
+                try { await cache.put(res.type === 'opaque' ? nocorsReq : corsReq, res.clone()); } catch {}
               }
             }
           } catch {}
@@ -130,6 +134,7 @@ registerRoute(
           try { const u = new URL(request.url); u.search=''; return u.toString(); } catch { return request.url; }
         }
       },
+      new CacheableResponsePlugin({ statuses: [0, 200] }),
       new ExpirationPlugin({
         maxEntries: 200,
         maxAgeSeconds: 60 * 24 * 60 * 60 // 60 days
@@ -149,6 +154,7 @@ registerRoute(
           try { const u = new URL(request.url); u.search=''; return u.toString(); } catch { return request.url; }
         }
       },
+      new CacheableResponsePlugin({ statuses: [0, 200, 206] }),
       new RangeRequestsPlugin(),
       new ExpirationPlugin({ maxEntries: 200, maxAgeSeconds: 60 * 24 * 60 * 60 })
     ]

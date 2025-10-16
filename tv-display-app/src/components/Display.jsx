@@ -27,6 +27,7 @@ const Display = ({ busNumber, depot }) => {
   const journeyRef = useRef(null);
   const socketRef = useRef(null);
   const videoRef = useRef(null);
+  const cachedUrlMap = useRef(new Map());
 
   // GPS Journey Simulation
   const startJourneySimulation = (startPoint, endPoint) => {
@@ -85,6 +86,41 @@ const Display = ({ busNumber, depot }) => {
         progress = 0;
       }
     }, 1000); // Update every second
+  };
+
+  // Resolve a URL from caches to a blob: URL if present (survives CORS on reload)
+  const resolveCachedUrl = async (url) => {
+    if (!url) return null;
+    try {
+      if (cachedUrlMap.current.has(url)) return cachedUrlMap.current.get(url);
+      const normalize = (u) => { try { const x = new URL(u); x.search=''; return x.toString(); } catch { return u; } };
+      const norm = normalize(url);
+      const candidates = ['videos', 'images', 'runtime'];
+      for (const name of candidates) {
+        try {
+          const cache = await caches.open(name);
+          const reqCors = new Request(norm, { mode: 'cors' });
+          const reqNoCors = new Request(norm, { mode: 'no-cors' });
+          const res = await cache.match(reqCors) || await cache.match(reqNoCors);
+          if (res) {
+            const blob = await res.blob();
+            const objUrl = URL.createObjectURL(blob);
+            cachedUrlMap.current.set(url, objUrl);
+            return objUrl;
+          }
+        } catch {}
+      }
+    } catch {}
+    return null;
+  };
+
+  const setMediaByIndex = (i) => {
+    const item = (playlist || [])[i];
+    if (!item) return;
+    resolveCachedUrl(item.url).then((blobUrl) => {
+      const finalUrl = blobUrl || item.url;
+      setMediaContent({ ...item, url: finalUrl, origUrl: item.url });
+    }).catch(() => setMediaContent(item));
   };
 
   // Ensure a URL is cached in the SW cache buckets
@@ -366,13 +402,13 @@ const Display = ({ busNumber, depot }) => {
         if (sameList && playlist.length > 0) {
           // No change; only ensure mediaContent is set
           if (!mediaContent) {
-            setMediaContent(playlist[playlistIndex] || playlist[0]);
+            if (playlist[playlistIndex]) setMediaByIndex(playlistIndex); else setMediaByIndex(0);
           }
         } else {
           // New playlist - reset to first item
           setPlaylist(normalizedList);
           setPlaylistIndex(0);
-          setMediaContent(normalizedList[0] || null);
+          if (normalizedList[0]) setMediaByIndex(0); else setMediaContent(null);
           console.log('New playlist loaded:', normalizedList.length, 'items');
         }
         try { window.localStorage.setItem('last_media_playlist', JSON.stringify(normalizedList)); } catch {}
@@ -399,7 +435,7 @@ const Display = ({ busNumber, depot }) => {
       if (Array.isArray(cached) && cached.length) {
         setPlaylist(cached);
         setPlaylistIndex(0);
-        setMediaContent(cached[0]);
+        setMediaByIndex(0);
       } else {
         setMediaContent({
           type: 'video',
@@ -418,7 +454,7 @@ const Display = ({ busNumber, depot }) => {
     const next = (playlistIndex + 1) % playlist.length;
     console.log(`Advancing playlist: ${playlistIndex} -> ${next} (${playlist.length} total items)`);
     setPlaylistIndex(next);
-    setMediaContent(playlist[next]);
+    setMediaByIndex(next);
   };
 
   // Auto-advance media: images rotate every 8s; videos advance only when ended
@@ -585,7 +621,19 @@ const Display = ({ busNumber, depot }) => {
               crossOrigin="anonymous"
               ref={videoRef}
               onEnded={advancePlaylist}
-              onError={(e) => { console.error('Video load error:', e); advancePlaylist(); }}
+              onError={async (e) => {
+                try {
+                  const v = e.currentTarget;
+                  const orig = mediaContent?.origUrl || mediaContent?.url;
+                  const cached = await resolveCachedUrl(orig);
+                  if (cached && v.src !== cached) {
+                    v.src = cached;
+                    try { await v.play(); return; } catch {}
+                  }
+                } catch {}
+                console.error('Video load error, advancing');
+                advancePlaylist();
+              }}
               onLoadedMetadata={(e) => {
                 try {
                   const v = e.currentTarget;
