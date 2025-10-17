@@ -304,6 +304,22 @@ const Display = ({ busNumber, depot }) => {
       
       let media = null;
       let list = [];
+
+      // If offline, bootstrap from last cached playlist immediately
+      try {
+        if (typeof navigator !== 'undefined' && navigator && navigator.onLine === false) {
+          const cachedList = JSON.parse(window.localStorage.getItem('last_media_playlist') || '[]');
+          if (Array.isArray(cachedList) && cachedList.length) {
+            console.log('Offline: using cached media playlist');
+            setPlaylist(cachedList);
+            setPlaylistIndex(0);
+            setMediaContent(cachedList[0] || null);
+            // Ensure cached URLs are available in cache buckets
+            try { await ensurePlaylistCached(cachedList.map(i => i.url)); } catch {}
+            return; // skip network
+          }
+        }
+      } catch {}
       
       // Try to get media specific to the bus first
       if (selectedBusNumber) {
@@ -436,13 +452,32 @@ const Display = ({ busNumber, depot }) => {
           await ensurePlaylistCached(normalizedList.map(i => i.url));
         } catch {}
       } else {
-        console.log('No media found, clearing playlist');
+        console.log('No media found from network, trying cached playlist');
+        try {
+          const cached = JSON.parse(window.localStorage.getItem('last_media_playlist') || '[]');
+          if (Array.isArray(cached) && cached.length) {
+            setPlaylist(cached);
+            setPlaylistIndex(0);
+            setMediaContent(cached[0] || null);
+            return;
+          }
+        } catch {}
+        console.log('No cached media either, clearing playlist');
         setPlaylist([]);
         setMediaContent(null);
       }
     } catch (error) {
       console.error('Error loading media:', error);
-      console.log('Error loading media, clearing playlist');
+      console.log('Error loading media, attempting cached playlist');
+      try {
+        const cached = JSON.parse(window.localStorage.getItem('last_media_playlist') || '[]');
+        if (Array.isArray(cached) && cached.length) {
+          setPlaylist(cached);
+          setPlaylistIndex(0);
+          setMediaContent(cached[0] || null);
+          return;
+        }
+      } catch {}
       setPlaylist([]);
       setMediaContent(null);
     }
