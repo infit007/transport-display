@@ -74,6 +74,12 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   const url = new URL(req.url);
 
+  // Only cache GET requests. Let HEAD/POST/etc pass through untouched.
+  if (req.method !== 'GET') {
+    event.respondWith(fetch(req));
+    return;
+  }
+
   // HTML navigations
   if (req.mode === 'navigate') {
     event.respondWith((async () => {
@@ -107,15 +113,18 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Videos: cache-first with range support (basic)
+  // Videos: cache-first; bypass CORS issues by avoiding cache.put on opaque responses
   if (req.destination === 'video' || /\.(mp4|webm|ogg|avi|mov)(\?.*)?$/.test(url.pathname)) {
     event.respondWith((async () => {
       const cache = await caches.open(CACHE_VIDEOS);
-      const hit = await cache.match(req);
+      // Normalize request to GET without HEAD (some CDNs respond with opaque)
+      const normalizedReq = new Request(req.url, { method: 'GET', mode: 'no-cors' });
+      const hit = await cache.match(normalizedReq);
       if (hit) return hit;
       try {
-        const net = await fetch(req);
-        try { cache.put(req, net.clone()); } catch {}
+        const net = await fetch(normalizedReq);
+        // Only cache non-opaque successful responses
+        try { if (net && net.type !== 'opaque') { await cache.put(normalizedReq, net.clone()); } } catch {}
         return net;
       } catch {
         return Response.error();
