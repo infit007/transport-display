@@ -12,6 +12,8 @@ const MapboxMap = ({
   const mapContainer = useRef(null);
   const map = useRef(null);
   const [mapLoaded, setMapLoaded] = useState(false);
+  const routeCoordsRef = useRef([]);
+  const didFitRef = useRef(false);
 
   // You'll need to get a free Mapbox access token from https://mapbox.com
   // For now, using a demo token - replace with your own
@@ -44,9 +46,11 @@ const MapboxMap = ({
           }
         ]
       },
-      center: currentLocation ? [currentLocation.lng, currentLocation.lat] : [78.9568, 29.2138],
+      // Start neutral; we'll center once we have realtime or route
+      center: currentLocation ? [currentLocation.lng, currentLocation.lat] : [0, 0],
       zoom: 12,
-      attributionControl: false
+      attributionControl: false,
+      interactive: false // touchless navigation
     });
 
     map.current.on('load', () => {
@@ -120,14 +124,20 @@ const MapboxMap = ({
           layout: { 'line-join': 'round', 'line-cap': 'round' },
           paint: {
             'line-color': '#00e0ff',
-            'line-width': 5,
-            'line-opacity': 0.9
+            'line-width': 6,
+            'line-opacity': 0.95
           }
         });
 
-        // Fit bounds to route
+        // Fit bounds to route just once
         const bounds = coords.reduce((b, c) => b.extend(c), new mapboxgl.LngLatBounds(coords[0], coords[0]));
-        map.current.fitBounds(bounds, { padding: 50 });
+        if (!didFitRef.current) {
+          map.current.fitBounds(bounds, { padding: 60 });
+          didFitRef.current = true;
+        }
+
+        // Save for touchless navigation along the path
+        routeCoordsRef.current = coords;
       } catch (error) {
         console.error('Error adding route:', error);
       }
@@ -135,6 +145,40 @@ const MapboxMap = ({
 
     addDirections();
   }, [mapLoaded, startLocation, endLocation]);
+
+  // Touchless navigation: follow the route based on journey progress
+  useEffect(() => {
+    try {
+      if (!mapLoaded || !map.current) return;
+      const coords = routeCoordsRef.current;
+      if (!Array.isArray(coords) || coords.length < 2) return;
+      const progress = Math.max(0, Math.min(1, journeyProgress || 0));
+      const idxFloat = progress * (coords.length - 1);
+      const idx = Math.max(0, Math.min(coords.length - 1, Math.floor(idxFloat)));
+      const center = coords[idx];
+      const next = coords[Math.min(coords.length - 1, idx + 1)];
+      const bearing = (() => {
+        try {
+          const [lng1, lat1] = center; const [lng2, lat2] = next;
+          const toRad = (d) => d * Math.PI / 180;
+          const y = Math.sin(toRad(lng2 - lng1)) * Math.cos(toRad(lat2));
+          const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) - Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(toRad(lng2 - lng1));
+          const ang = Math.atan2(y, x) * 180 / Math.PI;
+          return (ang + 360) % 360;
+        } catch { return 0; }
+      })();
+
+      const zoom = progress < 0.1 || progress > 0.9 ? 11.5 : 13.5; // overview at ends, closer mid-route
+      map.current.easeTo({
+        center,
+        zoom,
+        bearing,
+        pitch: 45,
+        duration: 800,
+        easing: (t) => t
+      });
+    } catch {}
+  }, [mapLoaded, journeyProgress]);
 
   // Update current location marker
   useEffect(() => {
@@ -163,9 +207,11 @@ const MapboxMap = ({
     
     marker.setPopup(popup);
 
-    // Center map on current location
-    map.current.setCenter([currentLocation.lng, currentLocation.lat]);
-    map.current.setZoom(13);
+    // Center map smoothly on current location without changing zoom
+    try {
+      const current = [currentLocation.lng, currentLocation.lat];
+      map.current.easeTo({ center: current, duration: 600 });
+    } catch {}
 
   }, [mapLoaded, currentLocation, busNumber]);
 
