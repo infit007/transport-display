@@ -58,8 +58,7 @@ const MapboxMap = ({
       console.error('Map error:', e);
     });
 
-    // Add navigation control
-    map.current.addControl(new mapboxgl.NavigationControl(), 'top-right');
+    // Remove navigation controls (zoom/rotation) as not needed on TV display
 
     return () => {
       if (map.current) {
@@ -80,23 +79,37 @@ const MapboxMap = ({
           map.current.removeLayer('route');
           map.current.removeSource('route');
         }
+        // Try OSRM public routing API for real road directions
+        // Docs: https://project-osrm.org/docs/v5.24.0/api/#route-service
+        const url = `https://router.project-osrm.org/route/v1/driving/${startLocation.lng},${startLocation.lat};${endLocation.lng},${endLocation.lat}?overview=full&geometries=geojson`;
+        let coords = null;
+        try {
+          const resp = await fetch(url, { method: 'GET' });
+          if (resp.ok) {
+            const json = await resp.json();
+            coords = json?.routes?.[0]?.geometry?.coordinates || null;
+          }
+        } catch (_) {
+          // ignore network errors; will fall back below
+        }
 
-        // Skip Mapbox Directions API to avoid 403 errors
-        // Add a simple straight line between start and end points
-        console.log('Adding straight line route to avoid API errors');
-        
+        if (!coords || !Array.isArray(coords) || coords.length < 2) {
+          // Fallback to simple straight line when routing unavailable
+          coords = [
+            [startLocation.lng, startLocation.lat],
+            [endLocation.lng, endLocation.lat]
+          ];
+          console.log('OSRM unavailable, using straight line fallback');
+        } else {
+          console.log('OSRM route loaded with', coords.length, 'points');
+        }
+
         map.current.addSource('route', {
           type: 'geojson',
           data: {
             type: 'Feature',
             properties: {},
-            geometry: {
-              type: 'LineString',
-              coordinates: [
-                [startLocation.lng, startLocation.lat],
-                [endLocation.lng, endLocation.lat]
-              ]
-            }
+            geometry: { type: 'LineString', coordinates: coords }
           }
         });
 
@@ -104,25 +117,17 @@ const MapboxMap = ({
           id: 'route',
           type: 'line',
           source: 'route',
-          layout: {
-            'line-join': 'round',
-            'line-cap': 'round'
-          },
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
           paint: {
             'line-color': '#00e0ff',
-            'line-width': 4,
-            'line-opacity': 0.8
+            'line-width': 5,
+            'line-opacity': 0.9
           }
         });
 
-        // Fit map to show both points
-        const bounds = new mapboxgl.LngLatBounds(
-          [startLocation.lng, startLocation.lat],
-          [endLocation.lng, endLocation.lat]
-        );
+        // Fit bounds to route
+        const bounds = coords.reduce((b, c) => b.extend(c), new mapboxgl.LngLatBounds(coords[0], coords[0]));
         map.current.fitBounds(bounds, { padding: 50 });
-
-        console.log('Added straight line route successfully');
       } catch (error) {
         console.error('Error adding route:', error);
       }
