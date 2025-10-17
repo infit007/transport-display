@@ -1,5 +1,5 @@
 // API service for TV Display App to connect to backend
-const BACKEND_URL = 'https://transport-display.onrender.com';
+import { BACKEND_URL } from '../config/backend-simple.js';
 
 class TVDisplayAPI {
   constructor() {
@@ -31,22 +31,17 @@ class TVDisplayAPI {
     try {
       console.log(`Making API request to: ${url}`);
       const response = await fetch(url, config);
-      
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        // Surface a concise error message to callers; avoid flooding console
+        const err = new Error(`HTTP ${response.status}: ${response.statusText}`);
+        // Downgrade to warning to reduce noise in TV runtime
+        console.warn(`API request failed for ${endpoint}:`, err.message);
+        throw err;
       }
-      
       return await response.json();
     } catch (error) {
-      console.error(`API request failed for ${endpoint}:`, error);
-      
-      // If it's a CORS error, provide more helpful information
-      if (error.message.includes('Failed to fetch') || error.message.includes('CORS')) {
-        console.error('CORS Error: The backend needs to allow requests from this domain');
-        console.error('Backend URL:', this.baseURL);
-        console.error('Request URL:', url);
-      }
-      
+      // Keep logs minimal for TV runtime stability
+      console.warn(`API request failed for ${endpoint}:`, error?.message || error);
       throw error;
     }
   }
@@ -69,6 +64,11 @@ class TVDisplayAPI {
   // Get media for specific bus
   async getMediaForBus(busId) {
     return this.request(`/api/media/public/bus/${encodeURIComponent(busId)}`);
+  }
+
+  // Get media for specific bus by bus number
+  async getMediaForBusNumber(busNumber) {
+    return this.request(`/api/media/public/bus-number/${encodeURIComponent(busNumber)}`);
   }
 
   // Get news feeds

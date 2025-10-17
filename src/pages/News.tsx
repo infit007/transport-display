@@ -164,25 +164,17 @@ const News = () => {
     const items = selectedMediaIdx.map((i) => mediaItems[i]).filter(Boolean).map((m) => ({ url: m.url, type: m.type, name: m.name }));
     if (items.length === 0) return toast.error('Select at least one media item');
     setAssigning(true);
-    const total = selectedBusIds.length * items.length;
-    setAssignProgress({ done: 0, total });
+    setAssignProgress({ done: 0, total: 1 });
     try {
-      // Sequential loop: push each media to each bus one by one
-      for (const busId of selectedBusIds) {
-        for (const item of items) {
-          console.log('DEV Assigning media to bus:', busId, item);
-          const resp = await fetch(`${backendUrl}/api/media/public/assign`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ busIds: [busId], items: [item] }),
-          });
-          if (!resp.ok) throw new Error(`Assign failed (${resp.status})`);
-          setAssignProgress((p) => p ? { done: p.done + 1, total: p.total } : { done: 1, total });
-          // small delay to avoid flooding
-          await new Promise(r => setTimeout(r, 150));
-        }
-      }
-      toast.success('Assigned to buses');
+      // Single call: backend clears once and inserts all items for all buses
+      const resp = await fetch(`${backendUrl}/api/media/public/assign`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ busIds: selectedBusIds, items }),
+      });
+      if (!resp.ok) throw new Error(`Assign failed (${resp.status})`);
+      setAssignProgress({ done: 1, total: 1 });
+      toast.success('Media replaced on selected buses');
     } catch (err: any) {
       toast.error(err.message || 'Assign failed');
     } finally {
@@ -299,10 +291,10 @@ const News = () => {
 
               <div>
                 <Label>3) Push</Label>
-                <p className="text-sm text-muted-foreground mb-2">Pushes each selected media to each selected bus sequentially.</p>
+                <p className="text-sm text-muted-foreground mb-2">Replaces all existing media on selected buses with the new media items.</p>
                 <div className="flex items-center gap-3">
                   <Button type="button" onClick={assignSelectedMediaToBuses} disabled={assigning}>
-                    {assigning ? 'Pushing...' : 'Push to Selected Buses'}
+                    {assigning ? 'Replacing...' : 'Replace Media on Selected Buses'}
                   </Button>
                   {assignProgress && (
                     <span className="text-sm text-muted-foreground">{assignProgress.done}/{assignProgress.total}</span>

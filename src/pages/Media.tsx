@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Upload, Plus, Play, Trash2, ExternalLink, FileVideo, Link } from "lucide-react";
+import { Upload, Plus, Play, Trash2, ExternalLink, FileVideo, Link, Image as ImageIcon } from "lucide-react";
 import { toast } from "sonner";
 
 interface MediaItem {
@@ -41,6 +41,7 @@ const Media = () => {
   const [selectedBus, setSelectedBus] = useState<string>("");
   const [videoLink, setVideoLink] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetchMediaItems();
@@ -207,6 +208,14 @@ const Media = () => {
     }
   };
 
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setSelectedFile(file);
+      setVideoLink("");
+    }
+  };
+
   const handleVideoLinkChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setVideoLink(e.target.value);
     if (e.target.value) {
@@ -224,6 +233,9 @@ const Media = () => {
     setSelectedFile(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
+    }
+    if (imageInputRef.current) {
+      imageInputRef.current.value = "";
     }
   };
 
@@ -320,22 +332,36 @@ const Media = () => {
                     </Select>
                   </div>
 
-                  <div className="space-y-4">
+                  <div className="space-y-6">
                     <div className="space-y-2">
                       <Label>Upload File</Label>
                       <div className="flex items-center gap-2">
                         <Input
                           ref={fileInputRef}
                           type="file"
-                          accept="video/*,.mp4,.avi,.mov,.wmv"
+                          accept="video/*,image/*,.mp4,.avi,.mov,.wmv,.jpg,.jpeg,.png,.gif,.webp"
                           onChange={handleFileSelect}
                           className="flex-1"
                         />
                         <Upload className="w-4 h-4 text-muted-foreground" />
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        Supported formats: MP4, AVI, MOV, WMV
+                        Supported video: MP4, AVI, MOV, WMV — Supported image: JPG, PNG, GIF, WEBP
                       </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Or Upload Image (quick)</Label>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          ref={imageInputRef}
+                          type="file"
+                          accept="image/*,.jpg,.jpeg,.png,.gif,.webp"
+                          onChange={handleImageSelect}
+                          className="flex-1"
+                        />
+                        <ImageIcon className="w-4 h-4 text-muted-foreground" />
+                      </div>
                     </div>
 
                     <div className="text-center text-muted-foreground">OR</div>
@@ -406,7 +432,11 @@ const Media = () => {
                     <div className="flex items-center gap-3">
                       <div className="p-2 bg-gradient-to-br from-primary to-primary-glow rounded-lg group-hover:scale-110 transition-transform">
                         {item.type === 'file' ? (
-                          <FileVideo className="w-5 h-5 text-primary-foreground" />
+                          (/\.(jpg|jpeg|png|gif|webp)$/i.test(item.url) ? (
+                            <ImageIcon className="w-5 h-5 text-primary-foreground" />
+                          ) : (
+                            <FileVideo className="w-5 h-5 text-primary-foreground" />
+                          ))
                         ) : (
                           <ExternalLink className="w-5 h-5 text-primary-foreground" />
                         )}
@@ -414,7 +444,7 @@ const Media = () => {
                       <div>
                         <CardTitle className="text-lg">{item.name}</CardTitle>
                         <p className="text-sm text-muted-foreground">
-                          {item.type === 'file' ? 'Uploaded File' : 'Video Link'}
+                          {item.type === 'file' ? ( /\.(jpg|jpeg|png|gif|webp)$/i.test(item.url) ? 'Uploaded Image' : 'Uploaded Video') : 'Video Link'}
                         </p>
                       </div>
                     </div>

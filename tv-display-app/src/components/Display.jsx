@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { tvDisplayAPI } from '../services/api';
 import MapboxMap from './MapboxMap';
 import io from 'socket.io-client';
+import { BACKEND_URL } from '../config/backend-simple.js';
 
 const Display = ({ busNumber, depot }) => {
   const selectedBusNumber = busNumber || localStorage.getItem('tv_bus_number') || '';
@@ -18,6 +19,8 @@ const Display = ({ busNumber, depot }) => {
   const [mediaContent, setMediaContent] = useState(null);
   const [playlist, setPlaylist] = useState([]);
   const [playlistIndex, setPlaylistIndex] = useState(0);
+  // Used to force re-mount of the video element when looping a single item
+  const [reloadNonce, setReloadNonce] = useState(0);
   const prevPlaylistRef = useRef([]);
   const imageTimerRef = useRef(null);
   const [journeyProgress, setJourneyProgress] = useState(0); // 0 to 1
@@ -89,32 +92,9 @@ const Display = ({ busNumber, depot }) => {
     }, 1000); // Update every second
   };
 
-  // Retry current video with cache-busting; skip after a few attempts
-  const retryCurrentVideo = () => {
-    try {
-      const item = playlist[playlistIndex];
-      if (!item || item.type !== 'video') { advancePlaylist(); return; }
-      const url = item.url;
-      const count = (retryRef.current[url] || 0) + 1;
-      retryRef.current[url] = count;
-      if (count > 3) {
-        console.warn('Skipping video after retries:', url);
-        advancePlaylist();
-        return;
-      }
-      // Ask SW to re-cache this URL
-      try { warmupCache([url]); } catch {}
-      // Force a revalidation by appending a transient query param
-      const bust = `${url}${url.includes('?') ? '&' : '?'}_rb=${Date.now()}`;
-      const newList = [...playlist];
-      newList[playlistIndex] = { ...item, url: bust };
-      setPlaylist(newList);
-      setMediaContent({ ...item, url: bust });
-      console.log('Retrying video', count, '->', bust);
-    } catch (e) {
-      console.error('Retry handler error', e);
-      advancePlaylist();
-    }
+  // On error, immediately skip to next item to avoid creating many media players
+  const skipOnError = () => {
+    advancePlaylist();
   };
 
   // Ensure a URL is cached in the SW cache buckets
@@ -140,7 +120,7 @@ const Display = ({ busNumber, depot }) => {
   // Ensure the full playlist is cached, with small concurrency to avoid throttling
   const ensurePlaylistCached = async (urls) => {
     try {
-      const list = (urls || []).filter(Boolean);
+      const list = (urls || []).filter(Boolean).slice(0, 5); // cap to reduce memory pressure
       const concurrency = 3;
       let idx = 0;
       const workers = new Array(concurrency).fill(0).map(async () => {
@@ -149,7 +129,11 @@ const Display = ({ busNumber, depot }) => {
           await cacheMediaUrl(cur);
         }
       });
-      await Promise.all(workers);
+      // Do not block playback entirely; race with a timeout so UI proceeds
+      await Promise.race([
+        Promise.all(workers),
+        new Promise((resolve) => setTimeout(resolve, 5000))
+      ]);
       try { window.localStorage.setItem('offline_playlist', JSON.stringify(list)); } catch {}
       setOfflinePrepared(true);
     } catch {}
@@ -338,26 +322,39 @@ const Display = ({ busNumber, depot }) => {
               console.log('Loaded bus-specific playlist:', mediaData);
             }
           }
+          // If ID path returned empty, try bus-number-based endpoint defensively
+          if ((!media || !list?.length) && selectedBusNumber) {
+            try {
+              const byNumber = await tvDisplayAPI.getMediaForBusNumber(selectedBusNumber);
+              if (Array.isArray(byNumber) && byNumber.length) {
+                list = byNumber;
+                media = byNumber[0];
+                console.log('Loaded playlist via bus number endpoint');
+              }
+            } catch {}
+          }
         } catch (error) {
           console.log('No bus-specific media found:', error.message);
         }
       }
       
-      // If no bus-specific media, get any media
+      // If no bus-specific media, fall back to global public media list
       if (!media) {
         try {
-          const mediaData = await tvDisplayAPI.getMedia();
-          console.log('All media data from API:', mediaData);
-          
-          if (Array.isArray(mediaData) && mediaData.length > 0) {
-            list = mediaData;
-            media = mediaData[0];
-            console.log('Selected playlist, first media:', media);
-          } else {
-            console.log('No media data returned from API');
+          console.log('No bus-specific media found, falling back to global media list');
+          const globalList = await tvDisplayAPI.getMedia();
+          if (Array.isArray(globalList) && globalList.length) {
+            list = globalList;
+            media = globalList[0];
           }
-        } catch (error) {
-          console.error('Error fetching media:', error);
+        } catch (e) {
+          console.log('Global media fallback failed:', e?.message || e);
+        }
+        if (!media) {
+          console.log('No media found anywhere, clearing playlist');
+          setPlaylist([]);
+          setMediaContent(null);
+          return;
         }
       }
 
@@ -379,22 +376,28 @@ const Display = ({ busNumber, depot }) => {
         }
         
         const normalize = (m) => {
-          const url = (m?.url || '').toLowerCase();
+          const rawUrl = m?.url || '';
+          const url = rawUrl.toLowerCase();
+          // Infer by extension first when possible
+          const isVideoExt = ['.mp4', '.webm', '.ogg', '.avi', '.mov', '.m4v'].some(e => url.includes(e));
+          const isImageExt = ['.jpg', '.jpeg', '.png', '.gif', '.webp'].some(e => url.includes(e));
           let type = 'video';
-          if (m?.type === 'file') {
-            if (url.includes('.mp4') || url.includes('.webm') || url.includes('.ogg') || url.includes('.avi') || url.includes('.mov')) type = 'video';
-            else if (url.includes('.jpg') || url.includes('.jpeg') || url.includes('.png') || url.includes('.gif') || url.includes('.webp')) type = 'image';
-          } else if (m?.type) {
-            type = m.type;
+          if (isVideoExt) type = 'video';
+          else if (isImageExt) type = 'image';
+          else if (m?.type) {
+            // Fallback to declared type; treat 'link' as video
+            type = (m.type === 'link') ? 'video' : m.type;
           }
-          return { type, url: m.url, name: m.name || 'Media' };
+          return { type, url: rawUrl, name: m?.name || 'Media' };
         };
 
         // Normalize and de-duplicate by URL while preserving original list order
         const rawList = (list.length ? list : [media]).map(normalize).filter(x => x.url);
+        // Filter out items with unknown type
+        const filtered = rawList.filter(i => i.type === 'video' || i.type === 'image');
         const seen = new Set();
         const normalizedList = [];
-        for (const item of rawList) {
+        for (const item of filtered) {
           if (!seen.has(item.url)) {
             seen.add(item.url);
             normalizedList.push(item);
@@ -433,41 +436,43 @@ const Display = ({ busNumber, depot }) => {
           await ensurePlaylistCached(normalizedList.map(i => i.url));
         } catch {}
       } else {
-        console.log('No media found, using demo fallback');
-        // Demo fallback - use a reliable video
-        setMediaContent({
-          type: 'video',
-          url: 'https://www.w3schools.com/html/mov_bbb.mp4',
-          name: 'Demo Video'
-        });
-        setPlaylist([{ type: 'video', url: 'https://www.w3schools.com/html/mov_bbb.mp4', name: 'Demo Video' }]);
-        setPlaylistIndex(0);
+        console.log('No media found, clearing playlist');
+        setPlaylist([]);
+        setMediaContent(null);
       }
     } catch (error) {
       console.error('Error loading media:', error);
-      let cached = null;
-      try { cached = JSON.parse(window.localStorage.getItem('last_media_playlist') || 'null'); } catch {}
-      if (Array.isArray(cached) && cached.length) {
-        setPlaylist(cached);
-        setPlaylistIndex(0);
-        setMediaContent(cached[0]);
-      } else {
-        setMediaContent({
-          type: 'video',
-          url: 'https://www.w3schools.com/html/mov_bbb.mp4',
-          name: 'Demo Video'
-        });
-        setPlaylist([{ type: 'video', url: 'https://www.w3schools.com/html/mov_bbb.mp4', name: 'Demo Video' }]);
-        setPlaylistIndex(0);
-      }
+      console.log('Error loading media, clearing playlist');
+      setPlaylist([]);
+      setMediaContent(null);
     }
   };
 
   // Advance playlist
   const advancePlaylist = () => {
-    if (!playlist || playlist.length === 0) return;
+    if (!playlist || playlist.length === 0) {
+      console.log('No playlist to advance');
+      return;
+    }
+    if (playlist.length === 1) {
+      // Single-item playlist: explicitly restart the same media
+      try {
+        const v = videoRef.current;
+        if (v && mediaContent?.type === 'video') {
+          v.currentTime = 0;
+          const p = v.play();
+          if (p && typeof p.then === 'function') p.catch(() => {});
+        } else {
+          // Force remount for images or if no video element yet
+          setReloadNonce((n) => n + 1);
+        }
+      } catch {}
+      return;
+    }
     const next = (playlistIndex + 1) % playlist.length;
-    console.log(`Advancing playlist: ${playlistIndex} -> ${next} (${playlist.length} total items)`);
+    console.log(`🔄 Advancing playlist: ${playlistIndex} -> ${next} (${playlist.length} total items)`);
+    console.log(`📺 Current video: ${mediaContent?.name || 'Unknown'}`);
+    console.log(`📺 Next video: ${playlist[next]?.name || 'Unknown'}`);
     setPlaylistIndex(next);
     setMediaContent(playlist[next]);
   };
@@ -484,7 +489,13 @@ const Display = ({ busNumber, depot }) => {
     if (mediaContent.type === 'image') {
       imageTimerRef.current = setTimeout(() => {
         advancePlaylist();
-      }, 8000);
+        }, 5000);
+    } else if (mediaContent.type === 'video') {
+      // Add a safety timeout for videos (in case all other mechanisms fail)
+      imageTimerRef.current = setTimeout(() => {
+        console.log('⏰ Video safety timeout reached, advancing playlist');
+        advancePlaylist();
+      }, 60000); // 60 seconds max per video
     }
     
     return () => {
@@ -495,30 +506,84 @@ const Display = ({ busNumber, depot }) => {
     };
   }, [mediaContent, playlistIndex, playlist]);
 
-  // Safety: ensure videos advance even if 'ended' doesn't fire (some encoders stall near the end)
+  // Safety: ensure videos advance; use conservative stall handling
   useEffect(() => {
     const v = videoRef.current;
     if (!v || mediaContent?.type !== 'video') return;
+
+    let hasAdvanced = false; // Prevent double advancement
+    let stallTimer = null;
+
+    const clearStallTimer = () => { if (stallTimer) { clearTimeout(stallTimer); stallTimer = null; } };
+
     const onTime = () => {
       try {
         if (!isFinite(v.duration) || v.duration === 0) return;
-        if (v.currentTime >= v.duration - 0.25) {
+        if (v.currentTime >= v.duration - 0.1 && !hasAdvanced) {
+          console.log('⚠️ Video near end, advancing as safety measure');
+          hasAdvanced = true;
           advancePlaylist();
         }
       } catch {}
     };
-    const onStall = () => onTime();
+
+    const scheduleStallAdvance = () => {
+      if (hasAdvanced || stallTimer) return;
+      stallTimer = setTimeout(() => {
+        if (!hasAdvanced) {
+          console.log('⚠️ Video stall timeout, advancing');
+          hasAdvanced = true;
+          advancePlaylist();
+        }
+      }, 5000);
+    };
+
+    const onWaiting = () => scheduleStallAdvance();
+    const onStalled = () => scheduleStallAdvance();
+    const onPlaying = () => clearStallTimer();
+    const onProgress = () => clearStallTimer();
+
     v.addEventListener('timeupdate', onTime);
-    v.addEventListener('stalled', onStall);
-    v.addEventListener('suspend', onStall);
+    v.addEventListener('waiting', onWaiting);
+    v.addEventListener('stalled', onStalled);
+    v.addEventListener('playing', onPlaying);
+    v.addEventListener('progress', onProgress);
+
     return () => {
       try {
+        clearStallTimer();
         v.removeEventListener('timeupdate', onTime);
-        v.removeEventListener('stalled', onStall);
-        v.removeEventListener('suspend', onStall);
+        v.removeEventListener('waiting', onWaiting);
+        v.removeEventListener('stalled', onStalled);
+        v.removeEventListener('playing', onPlaying);
+        v.removeEventListener('progress', onProgress);
       } catch {}
     };
   }, [mediaContent?.url, playlistIndex]);
+
+  // Startup watchdog: if a new video fails to reach a playable state within 8s, skip it
+  useEffect(() => {
+    if (mediaContent?.type !== 'video') return;
+    const v = videoRef.current;
+    let cancelled = false;
+    const t = setTimeout(() => {
+      if (cancelled) return;
+      try {
+        const ready = v?.readyState || 0; // HAVE_NOTHING=0 .. HAVE_ENOUGH_DATA=4
+        const canPlay = ready >= 2 && !v?.paused;
+        if (!canPlay) {
+          console.warn('⏱️ Video startup watchdog advancing (not playable within 8s)');
+          advancePlaylist();
+        }
+      } catch {
+        advancePlaylist();
+      }
+    }, 8000);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [mediaContent?.url, reloadNonce, playlistIndex]);
+
+  // Removed explicit teardown on playlistIndex change because the ref points to the new element
+  // and clearing src on the new element can prevent it from loading, leading to black frames.
 
   // Load news ticker
   const loadNewsTicker = async () => {
@@ -543,7 +608,7 @@ const Display = ({ busNumber, depot }) => {
 
   // Initialize Socket.io connection for real-time updates
   useEffect(() => {
-    const backendUrl = 'https://transport-display.onrender.com';
+    const backendUrl = BACKEND_URL;
     socketRef.current = io(backendUrl, {
       transports: ['websocket', 'polling'],
       autoConnect: true,
@@ -563,6 +628,14 @@ const Display = ({ busNumber, depot }) => {
         socketRef.current.emit('subscribe', payload);
         socketRef.current.emit('join', payload);
         socketRef.current.emit('tv:register', payload);
+        
+        // Join specific rooms for targeted updates
+        if (selectedBusNumber) {
+          socketRef.current.emit('join', { busNumber: selectedBusNumber });
+        }
+        if (selectedDepot) {
+          socketRef.current.emit('join', { depot: selectedDepot });
+        }
       } catch {}
     });
     socketRef.current.on('disconnect', (reason) => {
@@ -578,12 +651,35 @@ const Display = ({ busNumber, depot }) => {
     // Helper to react to any media update signal
     const onMediaUpdate = (data) => {
       console.log('Received media update:', data);
+      
+      // Check if this update is targeted to this bus
+      if (data.busNumber && selectedBusNumber && data.busNumber !== selectedBusNumber) {
+        console.log('Media update not for this bus:', data.busNumber, 'vs', selectedBusNumber);
+        return;
+      }
+      
+      if (data.busId && busData && data.busId !== busData.id) {
+        console.log('Media update not for this bus ID:', data.busId, 'vs', busData?.id);
+        return;
+      }
+      
+      console.log('Media update is for this bus, reloading content...');
+      
+      // Clear current playlist immediately
+      setPlaylist([]);
+      setMediaContent(null);
+      setPlaylistIndex(0);
+      
       try {
         const currentUrls = Array.isArray(playlist) ? playlist.map(i => i?.url).filter(Boolean) : [];
         if (currentUrls.length) purgeCache(currentUrls);
       } catch {}
+      
       // Force reload media content when new media is pushed
-      loadMediaContent();
+      setTimeout(() => {
+        loadMediaContent();
+      }, 500); // Small delay to ensure backend has processed the changes
+      
       // Extra: try a few more refreshes in the next 20s in case backend is still processing
       try {
         let n = 3;
@@ -670,24 +766,20 @@ const Display = ({ busNumber, depot }) => {
           {console.log('Rendering media:', mediaContent)}
           {mediaContent?.type === 'video' ? (
             <video 
-              key={`${mediaContent.url}-${playlistIndex}`}
               src={mediaContent.url} 
               className="media-content"
               autoPlay 
               muted 
               playsInline 
-              preload="auto"
+              preload="metadata"
               controls={false}
               crossOrigin="anonymous"
               ref={videoRef}
-              onEnded={advancePlaylist}
-              onError={(e) => {
-                try {
-                  const err = e?.currentTarget?.error;
-                  console.error('Video load error:', err ? `${err.code || ''}` : e);
-                } catch {}
-                retryCurrentVideo();
+              onEnded={() => {
+                console.log('🎬 Video ended, advancing to next');
+                advancePlaylist();
               }}
+              onError={() => { skipOnError(); }}
               onLoadedMetadata={(e) => {
                 try {
                   const v = e.currentTarget;
@@ -695,23 +787,34 @@ const Display = ({ busNumber, depot }) => {
                   v.currentTime = 0;
                 } catch {}
               }}
+              onLoadedData={(e) => {
+                try {
+                  const v = e.currentTarget;
+                  const p = v.play();
+                  if (p && typeof p.then === 'function') p.catch(() => advancePlaylist());
+                } catch { advancePlaylist(); }
+              }}
               onCanPlay={(e) => {
                 try {
                   const v = e.currentTarget;
+                  console.log(`▶️ Video can play: ${mediaContent?.name} (${v.duration}s)`);
                   const playPromise = v.play();
-                  if (playPromise && typeof playPromise.then === 'function') {
-                    playPromise.catch(() => {});
-                  }
-                } catch {}
+                  if (playPromise && typeof playPromise.then === 'function') playPromise.catch(() => advancePlaylist());
+                } catch {
+                  advancePlaylist();
+                }
               }}
             />
           ) : (
             <img 
               src={mediaContent?.url || 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=1920&h=1080&fit=crop&crop=center'} 
-              className="media-content"
+              className="media-content image"
               alt="Display content"
               crossOrigin="anonymous"
-              onError={(e) => console.error('Image load error:', e)}
+              onError={() => {
+                console.error('Image load error, advancing to next');
+                advancePlaylist();
+              }}
             />
           )}
         </div>

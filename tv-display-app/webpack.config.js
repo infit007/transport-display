@@ -44,7 +44,7 @@ module.exports = (env = {}, argv = {}) => {
     new CopyWebpackPlugin({
       patterns: [
         { from: 'public/manifest.json', to: 'manifest.json' },
-        { from: 'public/icon-*.png', to: '[name][ext]' }
+        { from: 'public/favicon.ico', to: 'favicon.ico' }
       ]
     }),
     // Only include InjectManifest in production mode to avoid watch mode issues

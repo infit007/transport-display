@@ -47,6 +47,23 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'transport-display-pro-backend' });
 });
 
+// Debug endpoint to check connected clients
+app.get('/api/debug/clients', (_req, res) => {
+  const clients = [];
+  io.sockets.sockets.forEach((socket, id) => {
+    clients.push({
+      id: socket.id,
+      rooms: Array.from(socket.rooms),
+      connected: socket.connected
+    });
+  });
+  res.json({ 
+    totalClients: clients.length,
+    clients: clients,
+    rooms: Array.from(io.sockets.adapter.rooms.keys())
+  });
+});
+
 // API routes
 app.use('/api/buses', busesRoutes);
 app.use('/api/devices', devicesRoutes);
@@ -56,11 +73,51 @@ app.use('/api/news', createNewsRoutes(io));
 
 // Socket.io basic channels
 io.on('connection', (socket) => {
+  console.log('Client connected:', socket.id);
+  
+  // GPS position updates
   socket.on('gps:update', (payload) => {
     socket.broadcast.emit('gps:position', payload);
   });
+  
+  // News broadcasting
   socket.on('news:push', (payload) => {
+    console.log('Broadcasting news:', payload);
     io.emit('news:broadcast', payload);
+  });
+  
+  // TV Display registration
+  socket.on('tv:register', (payload) => {
+    console.log('TV Display registered:', payload);
+    socket.join(`bus:${payload.busNumber}`);
+    socket.join(`depot:${payload.depot}`);
+  });
+  
+  // Subscribe to specific bus/depot
+  socket.on('subscribe', (payload) => {
+    console.log('Client subscribed to:', payload);
+    if (payload.busNumber) {
+      socket.join(`bus:${payload.busNumber}`);
+    }
+    if (payload.depot) {
+      socket.join(`depot:${payload.depot}`);
+    }
+  });
+  
+  // Join specific bus/depot
+  socket.on('join', (payload) => {
+    console.log('Client joined:', payload);
+    if (payload.busNumber) {
+      socket.join(`bus:${payload.busNumber}`);
+    }
+    if (payload.depot) {
+      socket.join(`depot:${payload.depot}`);
+    }
+  });
+  
+  // Handle disconnection
+  socket.on('disconnect', (reason) => {
+    console.log('Client disconnected:', socket.id, reason);
   });
 });
 

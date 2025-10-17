@@ -46,6 +46,12 @@ html, body, #root { height: 100%; margin: 0; padding: 0; }
   display: block;
 }
 
+/* Ensure images fit without cropping while videos continue to fill */
+.media-content.image {
+  object-fit: contain;
+  background: #000; /* letterbox/pillarbox background for non-matching aspect ratios */
+}
+
 /* Right Panel - Information */
 .info-panel {
   background: #000;

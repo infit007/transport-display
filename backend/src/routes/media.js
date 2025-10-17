@@ -52,6 +52,61 @@ router.get('/public/bus/:busId', async (req, res) => {
   return res.json(data);
 });
 
+// Public endpoint to get media by bus number directly (defensive against ID mapping issues)
+router.get('/public/bus-number/:busNumber', async (req, res) => {
+  try {
+    const { busNumber } = req.params;
+    const { data: buses, error: busErr } = await supabase
+      .from('buses')
+      .select('id, bus_number')
+      .eq('bus_number', busNumber)
+      .limit(1);
+    if (busErr) return res.status(500).json({ error: busErr.message });
+    const bus = Array.isArray(buses) && buses[0] ? buses[0] : null;
+    if (!bus) return res.json([]);
+    const { data, error } = await supabase
+      .from('media_library')
+      .select('url, type, name, bus_id, created_at')
+      .eq('bus_id', bus.id)
+      .order('created_at', { ascending: true });
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json(data);
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// Debug: return counts of media rows per provided bus numbers or IDs
+router.get('/public/debug/assignments', async (req, res) => {
+  try {
+    const { busNumbers, busIds } = req.query;
+    let ids = [];
+    if (busIds) {
+      ids = String(busIds).split(',').map((s) => s.trim()).filter(Boolean);
+    } else if (busNumbers) {
+      const nums = String(busNumbers).split(',').map((s) => s.trim()).filter(Boolean);
+      const { data: buses, error: busErr } = await supabase
+        .from('buses')
+        .select('id, bus_number')
+        .in('bus_number', nums);
+      if (busErr) return res.status(500).json({ error: busErr.message });
+      ids = (buses || []).map((b) => b.id);
+    }
+    if (!ids.length) return res.json({ items: [], counts: {}, ids: [] });
+    const { data, error } = await supabase
+      .from('media_library')
+      .select('id, name, type, url, bus_id, created_at')
+      .in('bus_id', ids)
+      .order('created_at', { ascending: true });
+    if (error) return res.status(500).json({ error: error.message });
+    const counts = {};
+    for (const row of data || []) counts[row.bus_id] = (counts[row.bus_id] || 0) + 1;
+    return res.json({ items: data || [], counts, ids });
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
 // Public endpoint to assign media items to multiple buses
 // Body: { busIds: string[], items: { url: string, type: 'file'|'link', name?: string }[] }
 router.post('/public/assign', async (req, res) => {
@@ -77,39 +132,90 @@ router.post('/public/assign', async (req, res) => {
 
     if (candidateRows.length === 0) return res.status(400).json({ error: 'No valid assignments' });
 
-    // De-duplicate by checking existing assignments for the selected buses and urls
-    const uniqueUrls = Array.from(new Set(items.map((i) => String(i.url))));
-    const { data: existing, error: existingErr } = await supabase
+    // Clear existing media for selected buses first (replace behavior)
+    console.log('Clearing existing media for buses:', busIds);
+    const { error: deleteError } = await supabase
       .from('media_library')
-      .select('bus_id, url')
-      .in('bus_id', busIds)
-      .in('url', uniqueUrls);
-    if (existingErr) return res.status(500).json({ error: existingErr.message });
-
-    const existingSet = new Set((existing || []).map((r) => `${r.bus_id}|${r.url}`));
-    const rows = candidateRows.filter((r) => !existingSet.has(`${r.bus_id}|${r.url}`));
-
-    // If everything already exists, short-circuit and report
-    if (rows.length === 0) {
-      return res.status(200).json({ inserted: 0, items: [], deduplicated: true });
+      .delete()
+      .in('bus_id', busIds);
+    
+    if (deleteError) {
+      console.error('Error clearing existing media:', deleteError);
+      return res.status(500).json({ error: `Failed to clear existing media: ${deleteError.message}` });
     }
+
+    console.log('Cleared existing media, now inserting new media...');
 
     const { error, data } = await supabase
       .from('media_library')
-      .insert(rows)
+      .insert(candidateRows)
       .select('id, name, type, url, bus_id');
     if (error) return res.status(400).json({ error: error.message });
 
-    // Emit media update event to all connected clients only when new rows were inserted
+    // Emit targeted media update events to specific buses only when new rows were inserted
     if (io && data && data.length > 0) {
-      io.emit('media:update', {
-        message: 'New media assigned to buses',
+      console.log('Emitting media updates for buses:', busIds);
+      
+      // Get bus numbers for the bus IDs to emit to the correct rooms
+      const { data: busData, error: busError } = await supabase
+        .from('buses')
+        .select('id, bus_number')
+        .in('id', busIds);
+      
+      if (!busError && busData) {
+        // Emit to specific buses using both bus ID and bus number
+        for (const bus of busData) {
+          const busMediaItems = data.filter(item => item.bus_id === bus.id);
+          
+          // Emit to bus ID room
+          io.to(`bus:${bus.id}`).emit('media:update', {
+            message: 'New media assigned to your bus',
+            busId: bus.id,
+            busNumber: bus.bus_number,
+            mediaCount: busMediaItems.length,
+            mediaItems: busMediaItems
+          });
+          
+          // Emit to bus number room (for TV displays using bus numbers)
+          io.to(`bus:${bus.bus_number}`).emit('media:update', {
+            message: 'New media assigned to your bus',
+            busId: bus.id,
+            busNumber: bus.bus_number,
+            mediaCount: busMediaItems.length,
+            mediaItems: busMediaItems
+          });
+          
+          // Also emit playlist update to both rooms
+          io.to(`bus:${bus.id}`).emit('playlist:update', {
+            message: 'Playlist updated',
+            busId: bus.id,
+            busNumber: bus.bus_number,
+            mediaItems: busMediaItems
+          });
+          
+          io.to(`bus:${bus.bus_number}`).emit('playlist:update', {
+            message: 'Playlist updated',
+            busId: bus.id,
+            busNumber: bus.bus_number,
+            mediaItems: busMediaItems
+          });
+        }
+      }
+      
+      // Emit general media refresh to all connected clients
+      io.emit('media:refresh', {
+        message: 'Media library updated',
         busIds: busIds,
         mediaCount: data.length,
       });
     }
 
-    return res.status(201).json({ inserted: data?.length || 0, items: data, deduplicated: false });
+    return res.status(201).json({ 
+      inserted: data?.length || 0, 
+      items: data, 
+      replaced: true,
+      message: `Replaced all existing media for ${busIds.length} bus(es) with ${data?.length || 0} new media item(s)`
+    });
   } catch (e) {
     return res.status(500).json({ error: e.message });
   }
