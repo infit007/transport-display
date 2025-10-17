@@ -47,15 +47,14 @@ module.exports = (env = {}, argv = {}) => {
         { from: 'public/favicon.ico', to: 'favicon.ico' }
       ]
     }),
-    // Include InjectManifest in both dev and prod so the SW is available offline locally too
-    ...([
-      new InjectManifest({ 
-        swSrc: './src/service-worker.js', 
+    // Include InjectManifest only in production on Vercel to avoid dev quirks
+    ...(isProduction ? [
+      new InjectManifest({
+        swSrc: './src/service-worker.js',
         swDest: 'service-worker.js',
-        // Increase the maximum file size to cache to accommodate the large bundle
-        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024 // 4MB
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024
       })
-    ]),
+    ] : []),
     new webpack.DefinePlugin({
       'process.env.CMS_BASE_URL': JSON.stringify(process.env.CMS_BASE_URL || 'http://localhost:4000'),
       'process.env.TV_SUPABASE_URL': JSON.stringify(process.env.TV_SUPABASE_URL || ''),

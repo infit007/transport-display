@@ -2,6 +2,11 @@
 
 // Minimal, framework-agnostic service worker (no Workbox runtime dependency)
 
+// Reference to please Workbox InjectManifest during build; we don't actually use it
+// but the presence of this symbol allows the build to succeed on Vercel.
+// eslint-disable-next-line no-undef
+const __WB_MANIFEST_PLACEHOLDER = self.__WB_MANIFEST || [];
+
 const CACHE_SHELL = 'html-shell-v1';
 const CACHE_IMAGES = 'images-v1';
 const CACHE_VIDEOS = 'videos-v1';
