@@ -117,11 +117,11 @@ const Display = ({ busNumber, depot }) => {
     } catch {}
   };
 
-  // Ensure the full playlist is cached, with small concurrency to avoid throttling
-  const ensurePlaylistCached = async (urls) => {
+  // Ensure the playlist is cached. When forceFull is true, wait until all are cached.
+  const ensurePlaylistCached = async (urls, forceFull = false) => {
     try {
-      const list = (urls || []).filter(Boolean).slice(0, 5); // cap to reduce memory pressure
-      const concurrency = 3;
+      const list = (urls || []).filter(Boolean);
+      const concurrency = forceFull ? 2 : 3;
       let idx = 0;
       const workers = new Array(concurrency).fill(0).map(async () => {
         while (idx < list.length) {
@@ -129,11 +129,15 @@ const Display = ({ busNumber, depot }) => {
           await cacheMediaUrl(cur);
         }
       });
-      // Do not block playback entirely; race with a timeout so UI proceeds
-      await Promise.race([
-        Promise.all(workers),
-        new Promise((resolve) => setTimeout(resolve, 5000))
-      ]);
+      if (forceFull) {
+        await Promise.all(workers);
+      } else {
+        // Do not block playback entirely; race with a timeout so UI proceeds
+        await Promise.race([
+          Promise.all(workers),
+          new Promise((resolve) => setTimeout(resolve, 5000))
+        ]);
+      }
       try { window.localStorage.setItem('offline_playlist', JSON.stringify(list)); } catch {}
       setOfflinePrepared(true);
     } catch {}
@@ -449,7 +453,7 @@ const Display = ({ busNumber, depot }) => {
         try { warmupCache(normalizedList.map(i => i.url).filter(Boolean)); } catch {}
         try {
           // Start explicit caching and wait until finished for stronger offline guarantees
-          await ensurePlaylistCached(normalizedList.map(i => i.url));
+          await ensurePlaylistCached(normalizedList.map(i => i.url), true);
         } catch {}
       } else {
         console.log('No media found from network, trying cached playlist');

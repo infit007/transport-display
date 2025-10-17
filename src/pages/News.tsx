@@ -175,6 +175,14 @@ const News = () => {
       if (!resp.ok) throw new Error(`Assign failed (${resp.status})`);
       setAssignProgress({ done: 1, total: 1 });
       toast.success('Media replaced on selected buses');
+      try {
+        // Ask TV clients to purge locally cached media for those buses so they pick up new content
+        fetch(`${backendUrl}/api/media/public/notify-purge`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ busIds: selectedBusIds })
+        }).catch(() => {});
+      } catch {}
     } catch (err: any) {
       toast.error(err.message || 'Assign failed');
     } finally {

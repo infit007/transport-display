@@ -258,6 +258,29 @@ router.post('/upload', authenticate, requireRole('admin', 'operator'), upload.si
   }
 });
 
+// Notify TV clients to purge local caches after replace action
+router.post('/public/notify-purge', async (req, res) => {
+  try {
+    const { busIds } = req.body || {};
+    if (!io) return res.status(200).json({ ok: true });
+    if (Array.isArray(busIds) && busIds.length) {
+      const { data: busData } = await supabase
+        .from('buses')
+        .select('id, bus_number')
+        .in('id', busIds);
+      for (const bus of busData || []) {
+        io.to(`bus:${bus.id}`).emit('playlist:update', { message: 'purge' });
+        io.to(`bus:${bus.bus_number}`).emit('playlist:update', { message: 'purge' });
+      }
+    } else {
+      io.emit('playlist:update', { message: 'purge' });
+    }
+    return res.json({ ok: true });
+  } catch (e) {
+    return res.status(200).json({ ok: true });
+  }
+});
+
   return router;
 }
 
