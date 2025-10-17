@@ -281,6 +281,22 @@ router.post('/public/notify-purge', async (req, res) => {
   }
 });
 
+// Simple proxy to fetch public media files with appropriate headers to improve SW caching
+router.get('/public/proxy', async (req, res) => {
+  try {
+    const { url } = req.query;
+    if (!url || typeof url !== 'string') return res.status(400).json({ error: 'url required' });
+    const upstream = await fetch(url);
+    if (!upstream.ok) return res.status(502).json({ error: `Upstream ${upstream.status}` });
+    // Stream response with cache-friendly headers
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.setHeader('Accept-Ranges', 'bytes');
+    upstream.body.pipe(res);
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
   return router;
 }
 

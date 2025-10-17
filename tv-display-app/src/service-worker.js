@@ -113,8 +113,14 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Videos: cache-first; bypass CORS issues by avoiding cache.put on opaque responses
-  if (req.destination === 'video' || /\.(mp4|webm|ogg|avi|mov)(\?.*)?$/.test(url.pathname)) {
+  // Videos: for cross-origin sources (e.g., Supabase), bypass SW entirely to avoid opaque stream issues on Chrome.
+  const isVideoPath = req.destination === 'video' || /\.(mp4|webm|ogg|avi|mov)(\?.*)?$/.test(url.pathname);
+  if (isVideoPath && url.origin !== self.location.origin) {
+    event.respondWith(fetch(req));
+    return;
+  }
+  // Same-origin videos: cache-first
+  if (isVideoPath) {
     event.respondWith((async () => {
       const cache = await caches.open(CACHE_VIDEOS);
       // Normalize request to GET without HEAD (some CDNs respond with opaque)
