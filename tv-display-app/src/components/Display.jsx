@@ -408,18 +408,7 @@ const Display = ({ busNumber, depot }) => {
             // Fallback to declared type; treat 'link' as video
             type = (m.type === 'link') ? 'video' : m.type;
           }
-          // In production on Vercel, wrap cross-origin media via backend proxy to avoid CDN/CORS
-          let finalUrl = rawUrl;
-          try {
-            const u = new URL(rawUrl);
-            const sameOrigin = (typeof window !== 'undefined') && window.location && window.location.origin === u.origin;
-            const alreadyProxied = rawUrl.includes('/api/media/public/proxy?url=');
-            if (!sameOrigin && !alreadyProxied && (type === 'image' || type === 'video')) {
-              const enc = encodeURIComponent(rawUrl);
-              finalUrl = `${BACKEND_URL}/api/media/public/proxy?url=${enc}`;
-            }
-          } catch {}
-          return { type, url: finalUrl, name: m?.name || 'Media' };
+          return { type, url: rawUrl, name: m?.name || 'Media' };
         };
 
         // Normalize and de-duplicate by URL while preserving original list order
