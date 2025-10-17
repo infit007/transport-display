@@ -898,7 +898,7 @@ const Display = ({ busNumber, depot }) => {
 
       {/* Bottom Ticker */}
       <div className="ticker-bar">
-        <div className="ticker-content">{ticker}</div>
+        <div className="ticker-content" style={{ minWidth: '100%' }}>{ticker}</div>
       </div>
     </div>
   );
