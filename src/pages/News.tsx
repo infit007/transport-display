@@ -38,6 +38,7 @@ const News = () => {
   const [uploading, setUploading] = useState<boolean>(false);
   const [assigning, setAssigning] = useState<boolean>(false);
   const [assignProgress, setAssignProgress] = useState<{ done: number; total: number } | null>(null);
+  const [loadingBusMedia, setLoadingBusMedia] = useState<boolean>(false);
 
   const loadNews = async () => {
     const { data, error } = await (supabase as any)
@@ -159,6 +160,52 @@ const News = () => {
     setSelectedMediaIdx((prev) => prev.includes(idx) ? prev.filter(x => x !== idx) : [...prev, idx]);
   };
 
+  const fetchBusCurrentlyStreamingMedia = async (busId: string) => {
+    setLoadingBusMedia(true);
+    try {
+      const response = await fetch(`${backendUrl}/api/media/public/bus/${busId}`);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch media for bus: ${response.status}`);
+      }
+      const busMedia = await response.json();
+      
+      if (Array.isArray(busMedia) && busMedia.length > 0) {
+        // Find the indices of media items that match the currently streaming media
+        const currentlyStreamingIndices: number[] = [];
+        
+        busMedia.forEach((streamingMedia: { url: string; type: string; name?: string }) => {
+          const matchingIndex = mediaItems.findIndex(media => 
+            media.url === streamingMedia.url && media.type === streamingMedia.type
+          );
+          if (matchingIndex !== -1) {
+            currentlyStreamingIndices.push(matchingIndex);
+          }
+        });
+        
+        // Pre-check the currently streaming media items
+        setSelectedMediaIdx(currentlyStreamingIndices);
+        
+        if (currentlyStreamingIndices.length > 0) {
+          toast.success(`Found ${currentlyStreamingIndices.length} currently streaming media item(s) for this bus`);
+        } else {
+          toast.info("No currently streaming media found for this bus");
+        }
+      } else {
+        toast.info("No currently streaming media found for this bus");
+        setSelectedMediaIdx([]);
+      }
+    } catch (error: any) {
+      console.error("Error fetching bus media:", error);
+      toast.error(`Failed to fetch currently streaming media: ${error.message}`);
+    } finally {
+      setLoadingBusMedia(false);
+    }
+  };
+
+  const handleBusClick = (busId: string) => {
+    fetchBusCurrentlyStreamingMedia(busId);
+  };
+
   const assignSelectedMediaToBuses = async () => {
     if (selectedBusIds.length === 0) return toast.error('Select at least one bus');
     const items = selectedMediaIdx.map((i) => mediaItems[i]).filter(Boolean).map((m) => ({ url: m.url, type: m.type, name: m.name }));
@@ -269,14 +316,26 @@ const News = () => {
                     ))}
                   </SelectContent>
                 </Select>
+                <p className="text-xs text-muted-foreground mt-2">
+                  💡 Click on a bus number to see and pre-select its currently streaming ads
+                </p>
                 <div className="mt-3 max-h-56 overflow-auto border rounded-md">
                   {buses
                     .filter(b => !targetDepot || b.depo === targetDepot)
                     .map(b => (
-                      <label key={b.id} className="flex items-center gap-2 p-2 hover:bg-muted">
+                      <div key={b.id} className="flex items-center gap-2 p-2 hover:bg-muted">
                         <input type="checkbox" checked={selectedBusIds.includes(b.id)} onChange={() => toggleBus(b.id)} />
-                        <span className="text-sm">{b.bus_number} {b.depo ? `( ${b.depo} )` : ''}</span>
-                      </label>
+                        <button
+                          type="button"
+                          onClick={() => handleBusClick(b.id)}
+                          disabled={loadingBusMedia}
+                          className="text-sm text-blue-600 hover:text-blue-800 hover:underline disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                          title="Click to see currently streaming ads for this bus"
+                        >
+                          {b.bus_number} {b.depo ? `( ${b.depo} )` : ''}
+                          {loadingBusMedia && <span className="text-xs">⏳</span>}
+                        </button>
+                      </div>
                     ))}
                 </div>
               </div>
@@ -291,7 +350,12 @@ const News = () => {
                   {mediaItems.map((m, idx) => (
                     <label key={`${m.url}-${idx}`} className="flex items-center gap-2 p-2 hover:bg-muted">
                       <input type="checkbox" checked={selectedMediaIdx.includes(idx)} onChange={() => toggleMedia(idx)} />
-                      <span className="text-sm truncate" title={m.url}>{m.name || 'Media'} — {m.type}</span>
+                      <span className="text-sm truncate" title={m.url}>
+                        {m.name || 'Media'} — {m.type}
+                        {selectedMediaIdx.includes(idx) && (
+                          <span className="ml-2 text-xs text-green-600 font-medium">✓ Currently streaming</span>
+                        )}
+                      </span>
                     </label>
                   ))}
                 </div>
