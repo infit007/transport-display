@@ -35,16 +35,16 @@ const Index = () => {
                 className="gap-2 text-lg px-8 py-6 bg-gradient-to-r from-primary to-primary-glow hover:opacity-90 transition-opacity shadow-lg shadow-primary/30"
                 onClick={() => navigate("/auth")}
               >
-                Get Started
+                Admin Portal
                 <Bus className="w-5 h-5" />
               </Button>
               <Button
                 size="lg"
                 variant="outline"
                 className="gap-2 text-lg px-8 py-6 border-primary/20 hover:bg-primary/10"
-                onClick={() => navigate("/display")}
+                onClick={() => navigate("/auth")}
               >
-                View Demo Display
+                Manager Portal
                 <Tv className="w-5 h-5" />
               </Button>
             </div>

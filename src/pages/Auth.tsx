@@ -28,8 +28,29 @@ const Auth = () => {
 
       if (error) throw error;
       
-      toast.success("Logged in successfully");
-      navigate("/dashboard");
+      // Check user role and redirect accordingly
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: roles } = await supabase
+          .from("user_roles")
+          .select("role")
+          .eq("user_id", user.id)
+          .in("role", ["admin", "manager" as any]);
+        
+        const hasAdminRole = roles?.some(role => role.role === "admin");
+        const hasManagerRole = roles?.some(role => role.role === "manager");
+        
+        if (hasAdminRole) {
+          toast.success("Logged in as Administrator");
+          navigate("/dashboard");
+        } else if (hasManagerRole) {
+          toast.success("Logged in as Manager");
+          navigate("/manager/dashboard");
+        } else {
+          toast.error("Access denied. Contact administrator for role assignment.");
+          await supabase.auth.signOut();
+        }
+      }
     } catch (error: any) {
       toast.error(error.message || "Failed to login");
     } finally {

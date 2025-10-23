@@ -10,6 +10,9 @@ import FleetManagement from "./pages/FleetManagement";
 import NotFound from "./pages/NotFound";
 import Media from "./pages/Media";
 import News from "./pages/News";
+import ManagerDashboard from "./pages/manager/ManagerDashboard";
+import ManagerFleetManagement from "./pages/manager/ManagerFleetManagement";
+import ManagerNews from "./pages/manager/ManagerNews";
 
 const queryClient = new QueryClient();
 
@@ -26,6 +29,10 @@ const App = () => (
           <Route path="/fleet" element={<FleetManagement />} />
           <Route path="/media" element={<Media />} />
           <Route path="/news" element={<News />} />
+          {/* Manager Portal Routes */}
+          <Route path="/manager/dashboard" element={<ManagerDashboard />} />
+          <Route path="/manager/fleet" element={<ManagerFleetManagement />} />
+          <Route path="/manager/news" element={<ManagerNews />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
