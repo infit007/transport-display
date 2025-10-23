@@ -9,12 +9,7 @@ import Dashboard from "./pages/Dashboard";
 import FleetManagement from "./pages/FleetManagement";
 import NotFound from "./pages/NotFound";
 import Media from "./pages/Media";
-import Schedules from "./pages/Schedules";
 import News from "./pages/News";
-import Display from "./pages/Display";
-import DisplayConfig from "./pages/DisplayConfig";
-import GpsSimulator from "./pages/GpsSimulator";
-import Presets from "./pages/Presets";
 
 const queryClient = new QueryClient();
 
@@ -30,12 +25,7 @@ const App = () => (
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/fleet" element={<FleetManagement />} />
           <Route path="/media" element={<Media />} />
-          <Route path="/schedules" element={<Schedules />} />
           <Route path="/news" element={<News />} />
-          <Route path="/display" element={<Display />} />
-          <Route path="/display-config" element={<DisplayConfig />} />
-          <Route path="/simulator" element={<GpsSimulator />} />
-          <Route path="/presets" element={<Presets />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

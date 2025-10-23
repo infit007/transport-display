@@ -7,8 +7,6 @@ import {
   LayoutDashboard, 
   Bus, 
   FileVideo, 
-  Calendar, 
-  Tv, 
   Newspaper,
   LogOut,
   Menu,
@@ -69,11 +67,6 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
     { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
     { icon: Bus, label: "Fleet Management", path: "/fleet" },
     { icon: FileVideo, label: "Media Library", path: "/media" },
-    { icon: Calendar, label: "Schedules", path: "/schedules" },
-    { icon: Tv, label: "Bus Display", path: "/display" },
-    { icon: Tv, label: "GPS Simulator", path: "/simulator" },
-    { icon: Tv, label: "Display Presets", path: "/presets" },
-    { icon: Tv, label: "Display Config", path: "/display-config" },
     { icon: Newspaper, label: "News Feeds", path: "/news" },
   ];
 
