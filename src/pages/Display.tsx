@@ -61,6 +61,14 @@ const Display = () => {
   const [mediaFromLibrary, setMediaFromLibrary] = useState<{url: string, type: 'file' | 'link'} | null>(null);
   const [busDepot, setBusDepot] = useState<string>("");
   const [resolvedBusNumber, setResolvedBusNumber] = useState<string>("");
+  const [startCoord, setStartCoord] = useState<{ lat: number; lng: number } | null>(null);
+  const [endCoord, setEndCoord] = useState<{ lat: number; lng: number } | null>(null);
+
+  const parseCoordinate = (value: any): number | null => {
+    if (value === null || value === undefined) return null;
+    const num = Number(value);
+    return Number.isFinite(num) ? num : null;
+  };
   const socketRef = useRef<Socket | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const playerRef = useRef<ReturnType<typeof videojs> | null>(null);
@@ -276,7 +284,7 @@ const Display = () => {
       const { supabase } = await import("@/integrations/supabase/client");
       const { data, error } = await (supabase as any)
         .from("buses")
-        .select("bus_number, start_point, end_point, route_name, driver_name, conductor_name, gps_latitude, gps_longitude, depo")
+        .select("bus_number, start_point, end_point, route_name, driver_name, conductor_name, gps_latitude, gps_longitude, depo, start_latitude, start_longitude, end_latitude, end_longitude")
         .eq("bus_number", busNumber)
         .maybeSingle();
         
@@ -293,16 +301,22 @@ const Display = () => {
         if (data.end_point) setDestination(data.end_point);
         if (data.depo) setBusDepot(data.depo);
         
-        // Update position if GPS coordinates are available
-        if (data.gps_latitude && data.gps_longitude) {
-          setPosition({ lat: data.gps_latitude, lng: data.gps_longitude });
-        }
+        const startLat = parseCoordinate(data.start_latitude);
+        const startLng = parseCoordinate(data.start_longitude);
+        const endLat = parseCoordinate(data.end_latitude);
+        const endLng = parseCoordinate(data.end_longitude);
+        const gpsLat = parseCoordinate(data.gps_latitude);
+        const gpsLng = parseCoordinate(data.gps_longitude);
+
+        if (startLat !== null && startLng !== null) setStartCoord({ lat: startLat, lng: startLng });
+        if (endLat !== null && endLng !== null) setEndCoord({ lat: endLat, lng: endLng });
+        if (gpsLat !== null && gpsLng !== null) setPosition({ lat: gpsLat, lng: gpsLng });
       } else {
         console.log("No bus found with number:", busNumber);
         // If no bus found, try to load any active bus as fallback
         const { data: fallbackData } = await (supabase as any)
           .from("buses")
-          .select("bus_number, start_point, end_point, route_name, driver_name, conductor_name, gps_latitude, gps_longitude, depo")
+          .select("bus_number, start_point, end_point, route_name, driver_name, conductor_name, gps_latitude, gps_longitude, depo, start_latitude, start_longitude, end_latitude, end_longitude")
           .eq("status", "active")
           .limit(1)
           .maybeSingle();
@@ -314,9 +328,17 @@ const Display = () => {
           if (fallbackData.start_point) setNextStop(fallbackData.start_point);
           if (fallbackData.end_point) setDestination(fallbackData.end_point);
           if (fallbackData.depo) setBusDepot(fallbackData.depo);
-          if (fallbackData.gps_latitude && fallbackData.gps_longitude) {
-            setPosition({ lat: fallbackData.gps_latitude, lng: fallbackData.gps_longitude });
-          }
+
+          const fallbackStartLat = parseCoordinate(fallbackData.start_latitude);
+          const fallbackStartLng = parseCoordinate(fallbackData.start_longitude);
+          const fallbackEndLat = parseCoordinate(fallbackData.end_latitude);
+          const fallbackEndLng = parseCoordinate(fallbackData.end_longitude);
+          const fallbackGpsLat = parseCoordinate(fallbackData.gps_latitude);
+          const fallbackGpsLng = parseCoordinate(fallbackData.gps_longitude);
+
+          if (fallbackStartLat !== null && fallbackStartLng !== null) setStartCoord({ lat: fallbackStartLat, lng: fallbackStartLng });
+          if (fallbackEndLat !== null && fallbackEndLng !== null) setEndCoord({ lat: fallbackEndLat, lng: fallbackEndLng });
+          if (fallbackGpsLat !== null && fallbackGpsLng !== null) setPosition({ lat: fallbackGpsLat, lng: fallbackGpsLng });
         }
       }
 
@@ -332,10 +354,17 @@ const Display = () => {
             if (row.end_point) setEndPoint(row.end_point);
             if (row.start_point) setNextStop(row.start_point);
             if (row.end_point) setDestination(row.end_point);
-            if (row.gps_latitude && row.gps_longitude) {
-              setPosition({ lat: row.gps_latitude, lng: row.gps_longitude });
-            }
             if (row.depo) setBusDepot(row.depo);
+            const rowGpsLat = parseCoordinate(row.gps_latitude);
+            const rowGpsLng = parseCoordinate(row.gps_longitude);
+            const rowStartLat = parseCoordinate(row.start_latitude);
+            const rowStartLng = parseCoordinate(row.start_longitude);
+            const rowEndLat = parseCoordinate(row.end_latitude);
+            const rowEndLng = parseCoordinate(row.end_longitude);
+
+            if (rowGpsLat !== null && rowGpsLng !== null) setPosition({ lat: rowGpsLat, lng: rowGpsLng });
+            if (rowStartLat !== null && rowStartLng !== null) setStartCoord({ lat: rowStartLat, lng: rowStartLng });
+            if (rowEndLat !== null && rowEndLng !== null) setEndCoord({ lat: rowEndLat, lng: rowEndLng });
           }
         )
         .subscribe();
@@ -347,10 +376,28 @@ const Display = () => {
     loadBus();
   }, [deviceId]);
 
-  // Geocode and route using OSRM when requested
+  // Build route using DB lat/lng when available; otherwise geocode names, then OSRM
   useEffect(() => {
     const computeRoute = async () => {
       if (!useOsrm) return;
+      // Prefer precise coordinates if present
+      const origin = position && Number.isFinite(position.lat) && Number.isFinite(position.lng)
+        ? { lat: position.lat, lng: position.lng }
+        : startCoord;
+      const destinationCoord = endCoord;
+
+      if (origin && destinationCoord) {
+        try {
+          const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${origin.lng},${origin.lat};${destinationCoord.lng},${destinationCoord.lat}?overview=full&geometries=geojson`;
+          const osrmResp = await fetch(osrmUrl);
+          const osrm = await osrmResp.json();
+          const coords: Array<[number, number]> = osrm?.routes?.[0]?.geometry?.coordinates?.map((c: [number, number]) => [c[1], c[0]]) || [];
+          if (coords.length) {
+            setPlannedRoute(coords);
+            return;
+          }
+        } catch {}
+      }
       const s = startPoint || nextStop || "Dehradun ISBT";
       const e = endPoint || destination || "New Delhi";
       try {
@@ -374,7 +421,7 @@ const Display = () => {
       }
     };
     computeRoute();
-  }, [useOsrm, startPoint, endPoint, nextStop, destination]);
+  }, [useOsrm, startPoint, endPoint, nextStop, destination, startCoord, endCoord, position]);
 
   // Map follow component
   const ChangeView = ({ center }: { center: [number, number] }) => {

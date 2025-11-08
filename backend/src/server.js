@@ -76,8 +76,37 @@ io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
   
   // GPS position updates
-  socket.on('gps:update', (payload) => {
-    socket.broadcast.emit('gps:position', payload);
+  socket.on('gps:update', async (payload = {}) => {
+    try {
+      socket.broadcast.emit('gps:position', payload);
+      const { deviceId, lat, lng } = payload;
+      const latNum = Number(lat);
+      const lngNum = Number(lng);
+      if (!deviceId || !Number.isFinite(latNum) || !Number.isFinite(lngNum)) {
+        return;
+      }
+
+      const updates = {
+        gps_latitude: latNum,
+        gps_longitude: lngNum,
+        last_location_update: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      const { error } = await supabase
+        .from('buses')
+        .update(updates)
+        .eq('bus_number', deviceId);
+
+      if (error) {
+        console.error('Failed to persist GPS update:', error.message);
+        return;
+      }
+
+      io.to(`bus:${deviceId}`).emit('gps:position', payload);
+    } catch (err) {
+      console.error('gps:update handler failed', err);
+    }
   });
   
   // News broadcasting

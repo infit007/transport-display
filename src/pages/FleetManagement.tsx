@@ -39,6 +39,8 @@ const FleetManagement = () => {
   const [buses, setBuses] = useState<BusData[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editingBus, setEditingBus] = useState<BusData | null>(null);
   const uttarakhandDepots = [
     "Dehradun Depot",
     "Haridwar Depot",
@@ -87,12 +89,36 @@ const FleetManagement = () => {
   const [conductorPhone, setConductorPhone] = useState("");
   const [startPoint, setStartPoint] = useState("");
   const [endPoint, setEndPoint] = useState("");
+  const [startLatitude, setStartLatitude] = useState<string>("");
+  const [startLongitude, setStartLongitude] = useState<string>("");
+  const [endLatitude, setEndLatitude] = useState<string>("");
+  const [endLongitude, setEndLongitude] = useState<string>("");
   const [depo, setDepo] = useState("");
   const [customDepot, setCustomDepot] = useState("");
   const [category, setCategory] = useState<"ev" | "small_bus" | "big_bus">("big_bus");
   const [sittingCapacity, setSittingCapacity] = useState<number>(48);
   const [runningHours, setRunningHours] = useState<12 | 15 | 24>(12);
   const [busType, setBusType] = useState<"volvo" | "ac" | "non_ac">("non_ac");
+  // Edit form state
+  const [eBusNumber, setEBusNumber] = useState("");
+  const [eRouteName, setERouteName] = useState("");
+  const [eStatus, setEStatus] = useState<"active" | "maintenance" | "offline">("active");
+  const [eDriverName, setEDriverName] = useState("");
+  const [eConductorName, setEConductorName] = useState("");
+  const [eDriverPhone, setEDriverPhone] = useState("");
+  const [eConductorPhone, setEConductorPhone] = useState("");
+  const [eStartPoint, setEStartPoint] = useState("");
+  const [eEndPoint, setEEndPoint] = useState("");
+  const [eStartLatitude, setEStartLatitude] = useState<string>("");
+  const [eStartLongitude, setEStartLongitude] = useState<string>("");
+  const [eEndLatitude, setEEndLatitude] = useState<string>("");
+  const [eEndLongitude, setEEndLongitude] = useState<string>("");
+  const [eDepo, setEDepo] = useState("");
+  const [eCustomDepot, setECustomDepot] = useState("");
+  const [eCategory, setECategory] = useState<"ev" | "small_bus" | "big_bus">("big_bus");
+  const [eSittingCapacity, setESittingCapacity] = useState<number>(48);
+  const [eRunningHours, setERunningHours] = useState<12 | 15 | 24>(12);
+  const [eBusType, setEBusType] = useState<"volvo" | "ac" | "non_ac">("non_ac");
 
   useEffect(() => {
     fetchBuses();
@@ -117,7 +143,7 @@ const FleetManagement = () => {
 
   const fetchBuses = async () => {
     try {
-      let query = supabase
+      let query: any = supabase
         .from('buses')
         .select('*')
         .order('created_at', { ascending: false });
@@ -139,7 +165,7 @@ const FleetManagement = () => {
   };
 
   const fetchPresets = async () => {
-    const { data } = await supabase.from("display_presets").select("id,name").order("created_at", { ascending: false });
+    const { data } = await (supabase as any).from("display_presets").select("id,name").order("created_at", { ascending: false });
     setPresets((data as any) || []);
   };
 
@@ -161,6 +187,10 @@ const FleetManagement = () => {
             conductor_phone: conductorPhone,
             start_point: startPoint,
             end_point: endPoint,
+            start_latitude: startLatitude ? Number(startLatitude) : null,
+            start_longitude: startLongitude ? Number(startLongitude) : null,
+            end_latitude: endLatitude ? Number(endLatitude) : null,
+            end_longitude: endLongitude ? Number(endLongitude) : null,
             depo: depo === "Other (Custom)" ? (customDepot || null) : depo,
             category: category,
             sitting_capacity: sittingCapacity,
@@ -183,6 +213,10 @@ const FleetManagement = () => {
       setConductorPhone("");
       setStartPoint("");
       setEndPoint("");
+      setStartLatitude("");
+      setStartLongitude("");
+      setEndLatitude("");
+      setEndLongitude("");
       setDepo("");
       setCategory("big_bus");
       setSittingCapacity(48);
@@ -203,6 +237,66 @@ const FleetManagement = () => {
         return 'bg-red-500/10 text-red-500 border-red-500/20';
       default:
         return 'bg-gray-500/10 text-gray-500 border-gray-500/20';
+    }
+  };
+
+  const openEditFor = (bus: BusData) => {
+    setEditingBus(bus);
+    setEBusNumber(bus.bus_number || "");
+    setERouteName(bus.route_name || "");
+    setEStatus((bus.status as any) || "active");
+    setEDriverName(bus.driver_name || "");
+    setEConductorName(bus.conductor_name || "");
+    setEDriverPhone(bus.driver_phone || "");
+    setEConductorPhone(bus.conductor_phone || "");
+    setEStartPoint(bus.start_point || "");
+    setEEndPoint(bus.end_point || "");
+    setEStartLatitude((((bus as any).start_latitude) ?? "").toString());
+    setEStartLongitude((((bus as any).start_longitude) ?? "").toString());
+    setEEndLatitude((((bus as any).end_latitude) ?? "").toString());
+    setEEndLongitude((((bus as any).end_longitude) ?? "").toString());
+    setEDepo(bus.depo || "");
+    setECustomDepot("");
+    setECategory((bus.category as any) || "big_bus");
+    setESittingCapacity((bus.sitting_capacity as any) || 48);
+    setERunningHours((bus.running_hours as any) || 12);
+    setEBusType((bus.bus_type as any) || "non_ac");
+    setEditDialogOpen(true);
+  };
+
+  const handleUpdateBus = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingBus) return;
+    try {
+      const updates: any = {
+        bus_number: eBusNumber,
+        route_name: eRouteName,
+        status: eStatus,
+        driver_name: eDriverName || null,
+        conductor_name: eConductorName || null,
+        driver_phone: eDriverPhone || null,
+        conductor_phone: eConductorPhone || null,
+        start_point: eStartPoint || null,
+        end_point: eEndPoint || null,
+        start_latitude: eStartLatitude ? Number(eStartLatitude) : null,
+        start_longitude: eStartLongitude ? Number(eStartLongitude) : null,
+        end_latitude: eEndLatitude ? Number(eEndLatitude) : null,
+        end_longitude: eEndLongitude ? Number(eEndLongitude) : null,
+        depo: eDepo === 'Other (Custom)' ? (eCustomDepot || null) : eDepo || null,
+        category: eCategory,
+        sitting_capacity: eSittingCapacity,
+        running_hours: eRunningHours,
+        bus_type: eBusType,
+      };
+
+      const { error } = await supabase.from('buses').update(updates).eq('id', editingBus.id);
+      if (error) throw error;
+      toast.success('Bus updated');
+      setEditDialogOpen(false);
+      setEditingBus(null);
+      fetchBuses();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update bus');
     }
   };
 
@@ -321,6 +415,28 @@ const FleetManagement = () => {
                     onChange={(e) => setStartPoint(e.target.value)}
                   />
                 </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Start Latitude</Label>
+                    <Input
+                      type="number"
+                      step="0.00000001"
+                      placeholder="e.g., 30.3165"
+                      value={startLatitude}
+                      onChange={(e) => setStartLatitude(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Start Longitude</Label>
+                    <Input
+                      type="number"
+                      step="0.00000001"
+                      placeholder="e.g., 78.0322"
+                      value={startLongitude}
+                      onChange={(e) => setStartLongitude(e.target.value)}
+                    />
+                  </div>
+                </div>
                 <div className="space-y-2">
                   <Label>End Point</Label>
                   <Input
@@ -328,6 +444,28 @@ const FleetManagement = () => {
                     value={endPoint}
                     onChange={(e) => setEndPoint(e.target.value)}
                   />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>End Latitude</Label>
+                    <Input
+                      type="number"
+                      step="0.00000001"
+                      placeholder="e.g., 29.9457"
+                      value={endLatitude}
+                      onChange={(e) => setEndLatitude(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>End Longitude</Label>
+                    <Input
+                      type="number"
+                      step="0.00000001"
+                      placeholder="e.g., 78.1642"
+                      value={endLongitude}
+                      onChange={(e) => setEndLongitude(e.target.value)}
+                    />
+                  </div>
                 </div>
                 <div className="space-y-2">
                   <Label>Depot</Label>
@@ -499,6 +637,16 @@ const FleetManagement = () => {
                       Route: {bus.start_point} → {bus.end_point}
                     </div>
                   )}
+                  {(bus as any).start_latitude && (bus as any).start_longitude && (
+                    <div className="text-xs text-muted-foreground">
+                      Start: {(bus as any).start_latitude.toFixed ? (bus as any).start_latitude.toFixed(4) : (bus as any).start_latitude}, {(bus as any).start_longitude.toFixed ? (bus as any).start_longitude.toFixed(4) : (bus as any).start_longitude}
+                    </div>
+                  )}
+                  {(bus as any).end_latitude && (bus as any).end_longitude && (
+                    <div className="text-xs text-muted-foreground">
+                      End: {(bus as any).end_latitude.toFixed ? (bus as any).end_latitude.toFixed(4) : (bus as any).end_latitude}, {(bus as any).end_longitude.toFixed ? (bus as any).end_longitude.toFixed(4) : (bus as any).end_longitude}
+                    </div>
+                  )}
                   <div className="flex gap-2 text-xs text-muted-foreground">
                     {bus.category && <span className="px-2 py-1 bg-blue-100 rounded">{bus.category}</span>}
                     {bus.bus_type && <span className="px-2 py-1 bg-green-100 rounded">{bus.bus_type}</span>}
@@ -512,12 +660,112 @@ const FleetManagement = () => {
                     <Link to={`/display?${new URLSearchParams({ deviceId: bus.bus_number, ...(bus.preset_id ? { presetId: bus.preset_id } : {}), showRoute: '1', showTrail: '1', osrm: '1' }).toString()}`} target="_blank" rel="noreferrer" className="flex-1">
                       <Button variant="outline" size="sm" className="w-full">Open Display</Button>
                     </Link>
+                    <Button size="sm" className="flex-1" onClick={() => openEditFor(bus)}>Edit</Button>
                   </div>
                 </CardContent>
               </Card>
             ))}
           </div>
         )}
+        {/* Edit Bus Dialog */}
+        <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+          <DialogContent className="max-w-4xl max-h-[95vh] overflow-hidden flex flex-col">
+            <DialogHeader className="flex-shrink-0">
+              <DialogTitle>Edit Bus</DialogTitle>
+            </DialogHeader>
+            <div className="overflow-y-auto flex-1 pr-2 space-y-4">
+              <form id="edit-bus-form" onSubmit={handleUpdateBus} className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Bus Number</Label>
+                  <Input value={eBusNumber} onChange={(e)=>setEBusNumber(e.target.value)} required />
+                </div>
+                <div className="space-y-2">
+                  <Label>Route Name</Label>
+                  <Input value={eRouteName} onChange={(e)=>setERouteName(e.target.value)} required />
+                </div>
+                <div className="space-y-2">
+                  <Label>Status</Label>
+                  <Select value={eStatus} onValueChange={(v)=>setEStatus(v as any)}>
+                    <SelectTrigger><SelectValue/></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="active">Active</SelectItem>
+                      <SelectItem value="maintenance">Maintenance</SelectItem>
+                      <SelectItem value="offline">Offline</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2"><Label>Driver Name</Label><Input value={eDriverName} onChange={(e)=>setEDriverName(e.target.value)} /></div>
+                  <div className="space-y-2"><Label>Conductor Name</Label><Input value={eConductorName} onChange={(e)=>setEConductorName(e.target.value)} /></div>
+                  <div className="space-y-2"><Label>Driver Phone</Label><Input value={eDriverPhone} onChange={(e)=>setEDriverPhone(e.target.value)} /></div>
+                  <div className="space-y-2"><Label>Conductor Phone</Label><Input value={eConductorPhone} onChange={(e)=>setEConductorPhone(e.target.value)} /></div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2"><Label>Start Point</Label><Input value={eStartPoint} onChange={(e)=>setEStartPoint(e.target.value)} /></div>
+                  <div className="space-y-2"><Label>End Point</Label><Input value={eEndPoint} onChange={(e)=>setEEndPoint(e.target.value)} /></div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2"><Label>Start Latitude</Label><Input type="number" step="0.00000001" value={eStartLatitude} onChange={(e)=>setEStartLatitude(e.target.value)} /></div>
+                  <div className="space-y-2"><Label>Start Longitude</Label><Input type="number" step="0.00000001" value={eStartLongitude} onChange={(e)=>setEStartLongitude(e.target.value)} /></div>
+                  <div className="space-y-2"><Label>End Latitude</Label><Input type="number" step="0.00000001" value={eEndLatitude} onChange={(e)=>setEEndLatitude(e.target.value)} /></div>
+                  <div className="space-y-2"><Label>End Longitude</Label><Input type="number" step="0.00000001" value={eEndLongitude} onChange={(e)=>setEEndLongitude(e.target.value)} /></div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Depot</Label>
+                  <Select value={eDepo} onValueChange={(v)=>{ setEDepo(v); if (v !== "Other (Custom)") setECustomDepot(""); }}>
+                    <SelectTrigger><SelectValue placeholder="Select Depot"/></SelectTrigger>
+                    <SelectContent>
+                      {uttarakhandDepots.map((d)=>(<SelectItem key={d} value={d}>{d}</SelectItem>))}
+                      <SelectItem value="Other (Custom)">Other (Custom)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {eDepo === "Other (Custom)" && (
+                    <Input className="mt-2" placeholder="Enter custom depot name" value={eCustomDepot} onChange={(e)=>setECustomDepot(e.target.value)} />
+                  )}
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label>Category</Label>
+                    <Select value={eCategory} onValueChange={(v)=>setECategory(v as any)}>
+                      <SelectTrigger><SelectValue/></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ev">EV</SelectItem>
+                        <SelectItem value="small_bus">Small Bus</SelectItem>
+                        <SelectItem value="big_bus">Big Bus</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2"><Label>Sitting Capacity</Label><Input type="number" value={eSittingCapacity} onChange={(e)=>setESittingCapacity(Number(e.target.value))} /></div>
+                  <div className="space-y-2">
+                    <Label>Running Hours</Label>
+                    <Select value={String(eRunningHours)} onValueChange={(v)=>setERunningHours(Number(v) as any)}>
+                      <SelectTrigger><SelectValue/></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="12">12 Hours</SelectItem>
+                        <SelectItem value="15">15 Hours</SelectItem>
+                        <SelectItem value="24">24 Hours</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Bus Type</Label>
+                  <Select value={eBusType} onValueChange={(v)=>setEBusType(v as any)}>
+                    <SelectTrigger><SelectValue/></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="volvo">Volvo</SelectItem>
+                      <SelectItem value="ac">AC</SelectItem>
+                      <SelectItem value="non_ac">Non-AC</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </form>
+            </div>
+            <DialogFooter className="flex-shrink-0 pt-4">
+              <Button type="submit" form="edit-bus-form" className="w-full">Save Changes</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </DashboardLayout>
   );

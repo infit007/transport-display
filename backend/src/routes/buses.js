@@ -15,7 +15,7 @@ router.get('/', authenticate, async (_req, res) => {
 router.get('/public', async (_req, res) => {
   const { data, error } = await supabase
     .from('buses')
-    .select('id, bus_number, route_name, start_point, end_point, depo, gps_latitude, gps_longitude, status')
+    .select('id, bus_number, route_name, start_point, end_point, depo, gps_latitude, gps_longitude, status, start_latitude, start_longitude, end_latitude, end_longitude')
     .order('created_at', { ascending: false });
   if (error) return res.status(500).json({ error: error.message });
   return res.json(data);
@@ -26,7 +26,7 @@ router.get('/public/:busNumber', async (req, res) => {
   const { busNumber } = req.params;
   const { data, error } = await supabase
     .from('buses')
-    .select('id, bus_number, route_name, start_point, end_point, depo, gps_latitude, gps_longitude, status')
+    .select('id, bus_number, route_name, start_point, end_point, depo, gps_latitude, gps_longitude, status, start_latitude, start_longitude, end_latitude, end_longitude')
     .eq('bus_number', busNumber)
     .single();
   if (error) return res.status(500).json({ error: error.message });
