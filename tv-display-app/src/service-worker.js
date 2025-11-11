@@ -113,6 +113,20 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Always bypass SW for map tiles and routing services to avoid opaque/cache issues
+  const isMapTile =
+    /(^|\.)tile\.openstreetmap\.org$/i.test(url.hostname) ||
+    /(^|\.)basemaps\.cartocdn\.com$/i.test(url.hostname) ||
+    /(^|\.)stamen\.com$/i.test(url.hostname) ||
+    /(^|\.)maptiler\.com$/i.test(url.hostname);
+  const isRoutingService =
+    /(^|\.)router\.project-osrm\.org$/i.test(url.hostname) ||
+    /(^|\.)api\.mapbox\.com$/i.test(url.hostname);
+  if (isMapTile || isRoutingService) {
+    event.respondWith(fetch(new Request(req, { cache: 'no-store' })));
+    return;
+  }
+
   // Videos: for cross-origin sources (e.g., Supabase), bypass SW entirely to avoid opaque stream issues on Chrome.
   const isVideoPath = req.destination === 'video' || /\.(mp4|webm|ogg|avi|mov)(\?.*)?$/.test(url.pathname);
   if (isVideoPath && url.origin !== self.location.origin) {

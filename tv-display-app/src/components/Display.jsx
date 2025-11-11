@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
   import { tvDisplayAPI } from '../services/api';
-  import MapboxMap from './MapboxMap';
+import MapboxMap from './MapboxMap';
   import io from 'socket.io-client';
   import { BACKEND_URL } from '../config/backend-simple.js';
 
@@ -34,8 +34,32 @@ import React, { useEffect, useRef, useState } from 'react';
     const retryRef = useRef({});
 
     // GPS Journey Simulation
-    const startJourneySimulation = (startPoint, endPoint) => {
-      if (!startPoint || !endPoint) return;
+    const startJourneySimulation = (startMeta, endMeta) => {
+      if (!startMeta || !endMeta) return;
+      const startInfo = {
+        name: typeof startMeta === 'string' ? startMeta : startMeta.name || 'Start',
+        lat:
+          typeof startMeta === 'object' && Number.isFinite(startMeta.lat)
+            ? startMeta.lat
+            : 29.2138,
+        lng:
+          typeof startMeta === 'object' && Number.isFinite(startMeta.lng)
+            ? startMeta.lng
+            : 78.9568
+      };
+      const endInfo = {
+        name: typeof endMeta === 'string' ? endMeta : endMeta.name || 'End',
+        lat:
+          typeof endMeta === 'object' && Number.isFinite(endMeta.lat)
+            ? endMeta.lat
+            : 29.4000,
+        lng:
+          typeof endMeta === 'object' && Number.isFinite(endMeta.lng)
+            ? endMeta.lng
+            : 79.1500
+      };
+      const startPoint = startInfo.name;
+      const endPoint = endInfo.name;
       
       console.log('Starting journey simulation from', startPoint, 'to', endPoint);
       
@@ -45,12 +69,15 @@ import React, { useEffect, useRef, useState } from 'react';
       }
       
       // Define route coordinates (simplified linear interpolation)
+      const midSteps = [0.25, 0.5, 0.75];
       const routeCoordinates = [
-        { lat: 29.2138, lng: 78.9568, name: startPoint }, // Start
-        { lat: 29.2500, lng: 79.0000, name: 'Mid Point 1' },
-        { lat: 29.3000, lng: 79.0500, name: 'Mid Point 2' },
-        { lat: 29.3500, lng: 79.1000, name: 'Mid Point 3' },
-        { lat: 29.4000, lng: 79.1500, name: endPoint } // End
+        { lat: startInfo.lat, lng: startInfo.lng, name: startPoint },
+        ...midSteps.map((t, idx) => ({
+          lat: startInfo.lat + (endInfo.lat - startInfo.lat) * t,
+          lng: startInfo.lng + (endInfo.lng - startInfo.lng) * t,
+          name: `Mid Point ${idx + 1}`
+        })),
+        { lat: endInfo.lat, lng: endInfo.lng, name: endPoint }
       ];
       
       let currentIndex = 0;
@@ -71,7 +98,7 @@ import React, { useEffect, useRef, useState } from 'react';
         const interpolatedLat = currentCoord.lat + (nextCoord.lat - currentCoord.lat) * progress;
         const interpolatedLng = currentCoord.lng + (nextCoord.lng - currentCoord.lng) * progress;
         
-        setCurrentLocation({ lat: interpolatedLat, lng: interpolatedLng });
+        setCurrentLocation({ lat: interpolatedLat, lng: interpolatedLng, ts: Date.now() });
         
         // Update next stop based on progress
         if (progress < 0.5) {
@@ -170,10 +197,11 @@ import React, { useEffect, useRef, useState } from 'react';
       } catch {}
     };
 
-    // Prefer real device GPS when available: follow device and route from current position
+    // Prefer real device GPS when available: follow device for live location only (do not reset route repeatedly)
     useEffect(() => {
       if (!('geolocation' in navigator)) return;
       let watchId = null;
+      const startSetRef = { current: false };
       try {
         watchId = navigator.geolocation.watchPosition(
           (pos) => {
@@ -181,9 +209,14 @@ import React, { useEffect, useRef, useState } from 'react';
             if (typeof latitude === 'number' && typeof longitude === 'number') {
               setUsingDeviceGps(true);
               const loc = { lat: latitude, lng: longitude };
-              setCurrentLocation(loc);
-              // Use device position as dynamic start for routing
-              setStartLocation((prev) => prev ? { ...prev, lat: loc.lat, lng: loc.lng, name: prev.name || 'Current Location' } : { ...loc, name: 'Current Location' });
+              setCurrentLocation({ ...loc, ts: Date.now() });
+              // Optionally set start once if we had none; avoid changing route repeatedly
+              setStartLocation((prev) => {
+                if (prev && Number.isFinite(prev.lat) && Number.isFinite(prev.lng)) return prev;
+                if (startSetRef.current) return prev;
+                startSetRef.current = true;
+                return { ...loc, name: 'Current Location' };
+              });
               // Stop the simulator when we have real GPS
               if (journeyRef.current) {
                 clearInterval(journeyRef.current);
@@ -200,6 +233,26 @@ import React, { useEffect, useRef, useState } from 'react';
       };
     }, []);
 
+    // Known coordinates for common Dehradun landmarks (fallback/normalization)
+    const resolveNamedCoords = (name) => {
+      if (!name || typeof name !== 'string') return null;
+      const n = name.toLowerCase();
+      // Dehradun ISBT
+      if (n.includes('isbt') && n.includes('dehradun')) return { lat: 30.2822, lng: 78.0250, name: 'ISBT Dehradun' };
+      if (n === 'isbt') return { lat: 30.2822, lng: 78.0250, name: 'ISBT Dehradun' };
+      // Ghantaghar (Clock Tower), Dehradun
+      if (n.includes('ghantaghar') || n.includes('clock tower')) return { lat: 30.3256, lng: 78.0413, name: 'Ghantaghar' };
+      // Dehradun generic center as a conservative fallback
+      if (n.includes('dehradun')) return { lat: 30.3165, lng: 78.0322, name: 'Dehradun' };
+      return null;
+    };
+
+    const isValidCoord = (lat, lng) => {
+      return typeof lat === 'number' && typeof lng === 'number' &&
+        Number.isFinite(lat) && Number.isFinite(lng) &&
+        lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+    };
+
     // Load bus data from backend API
     const loadBusData = async () => {
       try {
@@ -213,53 +266,94 @@ import React, { useEffect, useRef, useState } from 'react';
             busData = await tvDisplayAPI.getBusByNumber(selectedBusNumber);
             console.log('Loaded specific bus data:', busData);
           } catch (error) {
-            console.log('Specific bus not found, trying fallback:', error.message);
+            console.log('Specific bus not found:', error.message);
           }
         }
-        
-        // Only proceed if we have valid bus data with coordinates
+
+        // If no bus data, use a safe local fallback within Dehradun so the map always works
         if (!busData) {
-          console.log('No bus data found for:', selectedBusNumber);
+          console.log('No bus data found for:', selectedBusNumber, '— using Dehradun fallback (ISBT → Ghantaghar)');
+          const fallbackStart = { lat: 30.2822, lng: 78.0250, name: 'ISBT Dehradun' };
+          const fallbackEnd = { lat: 30.3256, lng: 78.0413, name: 'Ghantaghar' };
+          setBusData(null);
+          setNextStop(fallbackStart.name);
+          setFinalDestination(fallbackEnd.name);
+          setStartLocation(fallbackStart);
+          setEndLocation(fallbackEnd);
+          setCurrentLocation({ lat: fallbackStart.lat, lng: fallbackStart.lng, ts: Date.now() });
+          if (journeyRef.current) { clearInterval(journeyRef.current); journeyRef.current = null; }
+          startJourneySimulation(fallbackStart, fallbackEnd);
           return;
         }
 
-        // Validate that we have required coordinate data from database
+        // Validate that we have required coordinate data from database (we will still attempt normalization if missing)
         const hasStartCoords = typeof busData.start_latitude === 'number' && typeof busData.start_longitude === 'number';
         const hasEndCoords = typeof busData.end_latitude === 'number' && typeof busData.end_longitude === 'number';
-
-        if (!hasStartCoords || !hasEndCoords) {
-          console.log('Bus data missing required coordinates. Start:', hasStartCoords, 'End:', hasEndCoords);
-          return;
-        }
 
         setBusData(busData);
         setNextStop(busData.start_point || 'Loading...');
         setFinalDestination(busData.end_point || 'Loading...');
         try { window.localStorage.setItem('last_bus_data', JSON.stringify(busData)); } catch {}
         
-        // Use ONLY database coordinates - no fallbacks
-        setStartLocation({
-          lat: Number(busData.start_latitude),
-          lng: Number(busData.start_longitude),
-          name: busData.start_point || 'Start'
-        });
-        
-        setEndLocation({
-          lat: Number(busData.end_latitude),
-          lng: Number(busData.end_longitude),
-          name: busData.end_point || 'End'
-        });
+        // Normalize/override coordinates using known names when DB values are missing or clearly off
+        const dbStart = { lat: Number(busData.start_latitude), lng: Number(busData.start_longitude) };
+        const dbEnd = { lat: Number(busData.end_latitude), lng: Number(busData.end_longitude) };
+        const namedStart = resolveNamedCoords(busData.start_point || '');
+        const namedEnd = resolveNamedCoords(busData.end_point || '');
+
+        const defaultStart = { lat: 30.2822, lng: 78.0250, name: 'ISBT Dehradun' };
+        const defaultEnd = { lat: 30.3256, lng: 78.0413, name: 'Ghantaghar' };
+
+        // Geocode helper for names when coords are missing
+        const geocode = async (q) => {
+          try {
+            if (!q) return null;
+            const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`;
+            const resp = await fetch(url, { headers: { 'Accept-Language': 'en' } });
+            const arr = await resp.json();
+            if (Array.isArray(arr) && arr.length) {
+              return { lat: Number(arr[0].lat), lng: Number(arr[0].lon), name: q };
+            }
+          } catch {}
+          return null;
+        };
+
+        let finalStart = null;
+        if (hasStartCoords && isValidCoord(dbStart.lat, dbStart.lng)) {
+          finalStart = { ...dbStart, name: busData.start_point || (namedStart?.name || 'Start') };
+        } else if (namedStart) {
+          finalStart = namedStart;
+        } else {
+          finalStart = (await geocode(busData.start_point)) || defaultStart;
+        }
+
+        let finalEnd = null;
+        if (hasEndCoords && isValidCoord(dbEnd.lat, dbEnd.lng)) {
+          finalEnd = { ...dbEnd, name: busData.end_point || (namedEnd?.name || 'End') };
+        } else if (namedEnd) {
+          finalEnd = namedEnd;
+        } else {
+          // Try geocoding end point (e.g., Kathgodam) before defaulting
+          finalEnd = (await geocode(busData.end_point)) || defaultEnd;
+        }
+
+        setStartLocation(finalStart);
+        setEndLocation(finalEnd);
         
         // Set initial GPS coordinates from database if available, otherwise use start location
         if (busData.gps_latitude && busData.gps_longitude) {
           setCurrentLocation({ lat: Number(busData.gps_latitude), lng: Number(busData.gps_longitude), ts: Date.now() });
         } else {
-          setCurrentLocation({ lat: Number(busData.start_latitude), lng: Number(busData.start_longitude), ts: Date.now() });
+          setCurrentLocation({ lat: finalStart.lat, lng: finalStart.lng, ts: Date.now() });
         }
         
-        // Start journey simulation only if we have valid coordinates
-        if (!usingDeviceGps && busData.start_point && busData.end_point) {
-          startJourneySimulation(busData.start_point, busData.end_point);
+        // ALWAYS start journey simulation when we have valid coordinates (force movement by default)
+        if (busData.start_point && busData.end_point) {
+          if (journeyRef.current) { clearInterval(journeyRef.current); journeyRef.current = null; }
+          startJourneySimulation(
+            finalStart,
+            finalEnd
+          );
         }
         
         console.log('Loaded bus with coordinates - Start:', busData.start_latitude, busData.start_longitude, 'End:', busData.end_latitude, busData.end_longitude);
@@ -840,13 +934,14 @@ import React, { useEffect, useRef, useState } from 'react';
             {/* Map Section */}
             <div className="map-section">
               <div className="map-container">
-                <MapboxMap 
-                  startLocation={startLocation}
-                  endLocation={endLocation}
-                  currentLocation={currentLocation}
-                  journeyProgress={journeyProgress}
-                  busNumber={selectedBusNumber}
-                />
+              <MapboxMap
+                startLocation={startLocation}
+                endLocation={endLocation}
+                currentLocation={currentLocation}
+                stops={[]}
+                busNumber={selectedBusNumber}
+                follow
+              />
               </div>
             </div>
 
@@ -872,4 +967,4 @@ import React, { useEffect, useRef, useState } from 'react';
     );
   };
 
-  export default Display;
+  export default Display;
