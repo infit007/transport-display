@@ -153,12 +153,15 @@ export default function LeafletRouteMap({
   follow = true,
   DEBUG = false,
   forceEtaFallback = false,
+  showInfoPanel = false,
 }) {
   const mapRef = useRef(null);
   const mapElRef = useRef(null);
   const routeLayerRef = useRef(null);
   const vehicleMarkerRef = useRef(null);
   const projDebugMarkerRef = useRef(null);
+  const startMarkerRef = useRef(null);
+  const destMarkerRef = useRef(null);
   const stopMarkersRef = useRef([]);
   const cumDistancesRef = useRef([]);
   const routeCoordsRef = useRef([]);
@@ -198,8 +201,17 @@ export default function LeafletRouteMap({
       attribution: '© OpenStreetMap contributors'
     }).addTo(map);
 
-    // Ensure the map has an initial center/zoom to avoid "Set map center and zoom first" during early interactions
-    try { map.setView([20.5937, 78.9629], 6, { animate: false }); } catch {}
+    // Set initial view only when we have a valid location; otherwise wait
+    try {
+      const valid = (loc) => loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng) && Math.abs(loc.lat) > 0.0001 && Math.abs(loc.lng) > 0.0001;
+      if (valid(currentLocation)) {
+        map.setView([currentLocation.lat, currentLocation.lng], 17, { animate: false });
+      } else if (valid(startLocation)) {
+        map.setView([startLocation.lat, startLocation.lng], 17, { animate: false });
+      } else if (valid(endLocation)) {
+        map.setView([endLocation.lat, endLocation.lng], 17, { animate: false });
+      }
+    } catch {}
 
     // detect manual interaction; keep follow but don't change zoom automatically
     try {
@@ -372,8 +384,8 @@ export default function LeafletRouteMap({
     try { vehicleMarkerRef.current.setLatLng([projLat, projLng]); } catch {}
     if (follow) {
       try {
-        const z = mapRef.current.getZoom();
-        // keep current zoom (respect manual zoom), just pan smoothly towards target
+        const z = Math.max(17, mapRef.current.getZoom());
+        // keep at least zoom 17 initially (like Google navigation), pan smoothly
         mapRef.current.setView([projLat, projLng], z, { animate: true });
       } catch {}
     }
@@ -415,6 +427,7 @@ export default function LeafletRouteMap({
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       <div ref={mapElRef} style={{ position: 'absolute', inset: 0 }} />
+      {showInfoPanel && (
       <div style={panelStyle}>
         <div style={{ fontSize: 12, color: '#bbb' }}>BUS</div>
         <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 8 }}>{busNumber || '—'}</div>
@@ -451,6 +464,7 @@ export default function LeafletRouteMap({
 
         <div style={{ fontSize: 12, color: '#bbb', marginTop: 8 }}>Last: {lastSeen || '—'}</div>
       </div>
+      )}
     </div>
   );
 }
