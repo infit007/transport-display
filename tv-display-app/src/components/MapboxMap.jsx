@@ -1,3 +1,20 @@
+// Compute bearing from (lat1,lng1) to (lat2,lng2) in degrees [0,360)
+const bearingDeg = (lat1, lng1, lat2, lng2) => {
+  try {
+    const toRad = (d) => (d * Math.PI) / 180;
+    const toDeg = (r) => (r * 180) / Math.PI;
+    const φ1 = toRad(lat1);
+    const φ2 = toRad(lat2);
+    const Δλ = toRad(lng2 - lng1);
+    const y = Math.sin(Δλ) * Math.cos(φ2);
+    const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+    let θ = toDeg(Math.atan2(y, x));
+    if (!Number.isFinite(θ)) return 0;
+    return (θ + 360) % 360;
+  } catch {
+    return 0;
+  }
+};
 // MapboxMap.jsx
 import React, { useEffect, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
@@ -25,9 +42,11 @@ const MapboxMap = ({ currentLocation, endLocation, follow = true }) => {
 
   const routeLineRef = useRef(null);
   const routeLoadedRef = useRef(false);
+  const lastRouteUpdateRef = useRef(0);
 
   const vehicleMarkerRef = useRef(null);
   const destinationMarkerRef = useRef(null);
+  const prevPosRef = useRef(null);
 
   const [mapReady, setMapReady] = useState(false);
 
@@ -136,7 +155,7 @@ const MapboxMap = ({ currentLocation, endLocation, follow = true }) => {
     }
   }, [mapReady, currentLocation]);
 
-  /* -------------------- load route (SAFE) -------------------- */
+  /* -------------------- load route (initial) -------------------- */
   useEffect(() => {
     if (!mapReady) return;
     if (!isValid(currentLocation) || !isValid(endLocation)) return;
@@ -175,6 +194,12 @@ const MapboxMap = ({ currentLocation, endLocation, follow = true }) => {
               type: "Feature",
               geometry: { type: "LineString", coordinates: coords },
             },
+          });
+        } else {
+          // Ensure initial route is visible if source exists already
+          mapRef.current.getSource("route").setData({
+            type: "Feature",
+            geometry: { type: "LineString", coordinates: coords },
           });
         }
 
@@ -256,6 +281,41 @@ const MapboxMap = ({ currentLocation, endLocation, follow = true }) => {
     loadRoute();
   }, [mapReady, currentLocation, endLocation]);
 
+  /* -------------------- reroute ALWAYS from current -------------------- */
+  const rerouteFromCurrent = async (cur, dest) => {
+    try {
+      if (!isValid(cur) || !isValid(dest) || !mapRef.current) return;
+      const now = Date.now();
+      // Throttle network calls to ~0.7s for tighter alignment
+      if (now - lastRouteUpdateRef.current < 700) return;
+      lastRouteUpdateRef.current = now;
+
+      const url = `https://router.project-osrm.org/route/v1/driving/${cur.lng},${cur.lat};${dest.lng},${dest.lat}?overview=full&geometries=geojson`;
+      const res = await fetch(url);
+      const data = await res.json();
+      const coords = data?.routes?.[0]?.geometry?.coordinates;
+      if (!Array.isArray(coords) || coords.length < 2) return;
+
+      // Force the route to begin exactly at the current marker
+      const forced = [[cur.lng, cur.lat], ...coords.slice(1)];
+      routeLineRef.current = lineString(forced);
+
+      if (!mapRef.current.getSource("route")) {
+        mapRef.current.addSource("route", {
+          type: "geojson",
+          data: { type: "Feature", geometry: { type: "LineString", coordinates: forced } },
+        });
+      } else {
+        mapRef.current.getSource("route").setData({
+          type: "Feature",
+          geometry: { type: "LineString", coordinates: forced },
+        });
+      }
+    } catch (e) {
+      console.warn("[Map] rerouteFromCurrent failed", e);
+    }
+  };
+
   /* -------------------- snap to route -------------------- */
   const snapToRoute = (lat, lng) => {
     if (!routeLineRef.current) return [lng, lat];
@@ -283,7 +343,12 @@ const MapboxMap = ({ currentLocation, endLocation, follow = true }) => {
     if (!vehicleMarkerRef.current) {
       const el = document.createElement("div");
       el.style.cssText =
-        "width:18px;height:18px;border-radius:50%;background:#2979ff;border:3px solid white;box-shadow:0 0 0 6px rgba(41,121,255,0.25);";
+        "width:18px;height:18px;border-radius:50%;background:#2979ff;border:3px solid white;box-shadow:0 0 0 6px rgba(41,121,255,0.25);display:flex;align-items:center;justify-content:center;transform-origin:center;";
+      // Add a pointer arrow so rotation is visible
+      const arrow = document.createElement("div");
+      arrow.style.cssText =
+        "width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid #fff;position:absolute;top:-6px;left:50%;transform:translateX(-50%);filter:drop-shadow(0 1px 1px rgba(0,0,0,0.4));";
+      el.appendChild(arrow);
 
       vehicleMarkerRef.current = new mapboxgl.Marker({
         element: el,
@@ -293,6 +358,22 @@ const MapboxMap = ({ currentLocation, endLocation, follow = true }) => {
         .addTo(mapRef.current);
     } else {
       vehicleMarkerRef.current.setLngLat(target);
+    }
+
+    // Heading rotation based on movement
+    try {
+      const last = prevPosRef.current;
+      if (last && isValid(last)) {
+        const hdg = bearingDeg(last.lat, last.lng, currentLocation.lat, currentLocation.lng);
+        const el = vehicleMarkerRef.current.getElement?.() || null;
+        if (el) el.style.transform = `rotate(${hdg}deg)`;
+      }
+      prevPosRef.current = { ...currentLocation };
+    } catch {}
+
+    // 🧭 Update route on every movement (always reroute)
+    if (isValid(endLocation)) {
+      rerouteFromCurrent(currentLocation, endLocation);
     }
 
     // 🎥 Follow camera without horizontal sweep
