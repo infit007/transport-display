@@ -4,62 +4,42 @@ import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import { lineString, point } from "@turf/helpers";
 import nearestPointOnLine from "@turf/nearest-point-on-line";
-import length from "@turf/length";
 
-const MAPBOX_ACCESS_TOKEN =
+mapboxgl.accessToken =
   "pk.eyJ1IjoibWFwYm94IiwiYSI6ImNpejY4NXVycTA2emYycXBndHRqcmZ3N3gifQ.rJcFIG214AriISLbB6B5aw";
-
-mapboxgl.accessToken = MAPBOX_ACCESS_TOKEN;
 
 const DEFAULT_ZOOM = 17;
 
-/* -------------------- Utils -------------------- */
-const haversineMeters = (lat1, lon1, lat2, lon2) => {
-  const R = 6371000;
-  const toRad = (d) => (d * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) *
-      Math.cos(toRad(lat2)) *
-      Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-};
+/* -------------------- helpers -------------------- */
+const isValid = (loc) =>
+  loc &&
+  Number.isFinite(loc.lat) &&
+  Number.isFinite(loc.lng) &&
+  Math.abs(loc.lat) > 0.0001 &&
+  Math.abs(loc.lng) > 0.0001;
 
-/* -------------------- Component -------------------- */
-const MapboxMap = ({
-  currentLocation,   // ✅ used as start
-  endLocation,       // ✅ final destination
-  follow = true,
-}) => {
+/* -------------------- component -------------------- */
+const MapboxMap = ({ currentLocation, endLocation, follow = true }) => {
   const mapRef = useRef(null);
   const mapContainerRef = useRef(null);
 
-  const routeCoordsRef = useRef([]);
   const routeLineRef = useRef(null);
-  const totalRouteMetersRef = useRef(0);
+  const routeLoadedRef = useRef(false);
 
   const vehicleMarkerRef = useRef(null);
   const destinationMarkerRef = useRef(null);
 
-  const [mapLoaded, setMapLoaded] = useState(false);
+  const [mapReady, setMapReady] = useState(false);
 
-  const isValid = (loc) =>
-    loc &&
-    Number.isFinite(loc.lat) &&
-    Number.isFinite(loc.lng) &&
-    Math.abs(loc.lat) > 0.0001 &&
-    Math.abs(loc.lng) > 0.0001;
-
-  /* -------------------- Create map ONCE -------------------- */
+  /* -------------------- create map ONCE -------------------- */
   useEffect(() => {
     if (mapRef.current || !isValid(currentLocation)) return;
 
     mapRef.current = new mapboxgl.Map({
       container: mapContainerRef.current,
-
-      // ✅ OpenStreetMap raster tiles
+      center: [currentLocation.lng, currentLocation.lat],
+      zoom: DEFAULT_ZOOM,
+      attributionControl: false,
       style: {
         version: 8,
         sources: {
@@ -67,25 +47,14 @@ const MapboxMap = ({
             type: "raster",
             tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
             tileSize: 256,
-            attribution: "© OpenStreetMap contributors",
           },
         },
-        layers: [
-          {
-            id: "osm",
-            type: "raster",
-            source: "osm",
-          },
-        ],
+        layers: [{ id: "osm", type: "raster", source: "osm" }],
       },
-
-      center: [currentLocation.lng, currentLocation.lat],
-      zoom: DEFAULT_ZOOM,
-      attributionControl: false,
     });
 
-    mapRef.current.on("load", () => {
-      setMapLoaded(true);
+    mapRef.current.on("idle", () => {
+      setMapReady(true);
       mapRef.current.resize();
     });
 
@@ -95,30 +64,42 @@ const MapboxMap = ({
     };
   }, [currentLocation]);
 
-  /* -------------------- Load route (current → destination) -------------------- */
+  /* -------------------- load route (SAFE) -------------------- */
   useEffect(() => {
-    if (!mapLoaded) return;
+    if (!mapReady) return;
     if (!isValid(currentLocation) || !isValid(endLocation)) return;
-    if (routeCoordsRef.current.length > 0) return;
+    if (routeLoadedRef.current) return;
 
     const loadRoute = async () => {
       try {
         const url = `https://router.project-osrm.org/route/v1/driving/${currentLocation.lng},${currentLocation.lat};${endLocation.lng},${endLocation.lat}?overview=full&geometries=geojson`;
         const res = await fetch(url);
         const data = await res.json();
+        const coords = data?.routes?.[0]?.geometry?.coordinates;
+        if (!coords || coords.length < 2) return;
 
-        const coords = data.routes[0].geometry.coordinates;
-
-        routeCoordsRef.current = coords;
+        routeLoadedRef.current = true;
         routeLineRef.current = lineString(coords);
-        totalRouteMetersRef.current =
-          length(routeLineRef.current, { units: "kilometers" }) * 1000;
 
-        mapRef.current.addSource("route", {
-          type: "geojson",
-          data: {
-            type: "Feature",
-            geometry: { type: "LineString", coordinates: coords },
+        if (!mapRef.current.getSource("route")) {
+          mapRef.current.addSource("route", {
+            type: "geojson",
+            data: {
+              type: "Feature",
+              geometry: { type: "LineString", coordinates: coords },
+            },
+          });
+        }
+
+        // 🛣️ Google Maps style route (casing + main line)
+        mapRef.current.addLayer({
+          id: "route-casing",
+          type: "line",
+          source: "route",
+          paint: {
+            "line-color": "#0a0a0a",
+            "line-width": 9,
+            "line-opacity": 0.6,
           },
         });
 
@@ -129,17 +110,17 @@ const MapboxMap = ({
           paint: {
             "line-color": "#00e0ff",
             "line-width": 5,
+            "line-opacity": 0.95,
           },
         });
 
-        // 🎯 Destination marker
+        // 🎯 destination marker
         const destEl = document.createElement("div");
         destEl.style.cssText =
-          "width:22px;height:22px;border-radius:50%;background:#00c853;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.4);";
+          "width:22px;height:22px;border-radius:50%;background:#00c853;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.4)";
 
         destinationMarkerRef.current = new mapboxgl.Marker({
           element: destEl,
-          anchor: "center",
         })
           .setLngLat([endLocation.lng, endLocation.lat])
           .addTo(mapRef.current);
@@ -149,11 +130,11 @@ const MapboxMap = ({
     };
 
     loadRoute();
-  }, [mapLoaded, currentLocation, endLocation]);
+  }, [mapReady, currentLocation, endLocation]);
 
-  /* -------------------- Snap GPS to route -------------------- */
-  const projectToRoute = (lat, lng) => {
-    if (!routeLineRef.current) return null;
+  /* -------------------- snap to route -------------------- */
+  const snapToRoute = (lat, lng) => {
+    if (!routeLineRef.current) return [lng, lat];
 
     const snapped = nearestPointOnLine(
       routeLineRef.current,
@@ -161,33 +142,20 @@ const MapboxMap = ({
       { units: "kilometers" }
     );
 
-    return {
-      point: snapped.geometry.coordinates,
-      distanceToRoute: (snapped.properties.distance ?? 0) * 1000,
-    };
+    return snapped.geometry.coordinates;
   };
 
-  /* -------------------- Live GPS updates -------------------- */
+  /* -------------------- live GPS updates -------------------- */
   useEffect(() => {
-    if (!mapLoaded || !isValid(currentLocation)) return;
+    if (!mapReady || !isValid(currentLocation)) return;
 
     let target = [currentLocation.lng, currentLocation.lat];
 
     if (routeLineRef.current) {
-      const projection = projectToRoute(
-        currentLocation.lat,
-        currentLocation.lng
-      );
-
-      // Optional reroute if badly off-road
-      if (projection?.distanceToRoute > 150) {
-        routeCoordsRef.current = [];
-      }
-
-      if (projection) target = projection.point;
+      target = snapToRoute(currentLocation.lat, currentLocation.lng);
     }
 
-    // 🚍 Vehicle marker
+    // 🚍 ALWAYS show current location marker
     if (!vehicleMarkerRef.current) {
       const el = document.createElement("div");
       el.style.cssText =
@@ -203,7 +171,7 @@ const MapboxMap = ({
       vehicleMarkerRef.current.setLngLat(target);
     }
 
-    // 🎥 Smooth follow
+    // 🎥 Google Maps–like camera follow
     if (follow) {
       mapRef.current.easeTo({
         center: target,
@@ -212,16 +180,15 @@ const MapboxMap = ({
         easing: (t) => t,
       });
     }
-  }, [currentLocation, follow, mapLoaded]);
+  }, [currentLocation, follow, mapReady]);
 
-  /* -------------------- Render -------------------- */
+  /* -------------------- render -------------------- */
   return (
     <div
       ref={mapContainerRef}
       style={{
         width: "100%",
         height: "100vh",
-        position: "relative",
       }}
     />
   );
