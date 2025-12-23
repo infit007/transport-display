@@ -3,7 +3,7 @@
 html, body, #root { height: 100%; margin: 0; padding: 0; }
 
 /* Setup Screen Styles */
-.screen { width: 100%; height: 100vh; display: flex; align-items: center; justify-content: center; background: #000; }
+.screen { width: 100%; height: 100dvh; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #000; }
 .panel { width: 92%; max-width: 1400px; background:#0b0b0b; border:1px solid #222; border-radius: 16px; padding: 24px; }
 .row { display:flex; gap:16px; }
 .col { flex:1; }
@@ -17,7 +17,8 @@ html, body, #root { height: 100%; margin: 0; padding: 0; }
 /* Display Screen Styles - Matching the image layout */
 .display-container {
   width: 100%;
-  height: 100vh;
+  height: 100dvh; /* more stable on mobile browsers */
+  min-height: 100vh; /* fallback */
   display: grid;
   grid-template-rows: 1fr auto;
   background: #000;
@@ -30,6 +31,7 @@ html, body, #root { height: 100%; margin: 0; padding: 0; }
   grid-template-columns: 2fr 1fr;
   gap: 0;
   height: 100%;
+  min-height: 0; /* allow inner areas to shrink */
 }
 
 /* Left Panel - Media Display */
@@ -109,6 +111,7 @@ html, body, #root { height: 100%; margin: 0; padding: 0; }
   width: 100%;
   height: 100%;
   position: relative;
+  min-height: 0;
 }
 
 /* Mapbox Styles */
@@ -241,15 +244,18 @@ html, body, #root { height: 100%; margin: 0; padding: 0; }
     grid-template-columns: 1fr;
     grid-template-rows: 1fr auto;
   }
-  
+
   .info-panel {
-    grid-template-rows: auto auto auto auto;
+    grid-template-rows: auto 1fr auto auto; /* keep map flexible */
+    min-height: 0;
   }
-  
+
+  /* Allow the map to take available vertical space instead of a fixed 200px */
   .map-section {
-    height: 200px;
+    height: auto;
+    min-height: 200px; /* small minimum, but can grow */
   }
-  
+
   .bus-number {
     font-size: 24px;
   }

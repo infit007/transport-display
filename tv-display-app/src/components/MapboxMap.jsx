@@ -76,6 +76,12 @@ const MapboxMap = ({ currentLocation, endLocation, follow = true }) => {
       mapRef.current.on("error", (e) => {
         console.error("[Map] error event", e?.error || e);
       });
+
+      // Some mobile browsers can lose WebGL context when tabbing or backgrounding
+      mapRef.current.on("webglcontextlost", (e) => {
+        try { e?.preventDefault?.(); } catch {}
+        console.warn("[Map] webglcontextlost: preventing default to allow restore");
+      });
     } catch (e) {
       console.error("[Map] failed to create map", e);
     }
@@ -86,6 +92,33 @@ const MapboxMap = ({ currentLocation, endLocation, follow = true }) => {
       mapRef.current = null;
     };
   }, []);
+
+  // Resize on viewport/orientation changes (mobile URL bar show/hide, rotation)
+  useEffect(() => {
+    if (!mapRef.current) return;
+    let raf = null, last = 0;
+    const onResize = () => {
+      const now = Date.now();
+      if (now - last < 50) {
+        if (raf) cancelAnimationFrame(raf);
+        raf = requestAnimationFrame(onResize);
+        return;
+      }
+      last = now;
+      try {
+        mapRef.current.resize();
+        const c = mapRef.current.getContainer();
+        console.log("[Map] window resize -> map.resize()", { w: c?.clientWidth, h: c?.clientHeight });
+      } catch {}
+    };
+    window.addEventListener("resize", onResize);
+    window.addEventListener("orientationchange", onResize);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("orientationchange", onResize);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [mapReady]);
 
   // If map was created before we had a location, set initial camera when a valid location appears
   useEffect(() => {
@@ -116,6 +149,20 @@ const MapboxMap = ({ currentLocation, endLocation, follow = true }) => {
         const data = await res.json();
         console.log("[Map] OSRM response", data);
         const coords = data?.routes?.[0]?.geometry?.coordinates;
+        try { console.log("[Map] route coords (raw)", coords); } catch {}
+        try { if (Array.isArray(coords)) console.table(coords); } catch {}
+        try {
+          if (Array.isArray(data?.waypoints)) {
+            console.log("[Map] waypoints (raw)", data.waypoints);
+            const wp = data.waypoints.map((w) => ({
+              name: w?.name,
+              lat: w?.location?.[1],
+              lng: w?.location?.[0],
+              distance: w?.distance,
+            }));
+            console.table(wp);
+          }
+        } catch {}
         if (!coords || coords.length < 2) return;
 
         routeLoadedRef.current = true;
