@@ -704,7 +704,7 @@ const Display = ({ busNumber, depot }) => {
         </div>
 
         {/* Right: Info */}
-        <div className="info-panel">
+        <div className="info-panel" style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
           <div className="bus-number-section">
             <div className="bus-label">BUS NUMBER</div>
             <div className="bus-number">{selectedBusNumber || "Not Set"}</div>
@@ -713,11 +713,8 @@ const Display = ({ busNumber, depot }) => {
             )}
           </div>
 
-          <div className="map-section">
-            <div
-              className="map-container"
-              style={{ width: "100%", height: 480, position: "relative" }}
-            >
+          <div className="map-section" style={{ flex: "1 1 auto", minHeight: 0, display: "flex" }}>
+            <div className="map-container" style={{ width: "100%", height: "100%", position: "relative", minHeight: 0, flex: 1 }}>
               <MapboxMap
                 startLocation={startLocation}
                 endLocation={endLocation}
