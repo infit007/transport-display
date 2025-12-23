@@ -33,36 +33,75 @@ const MapboxMap = ({ currentLocation, endLocation, follow = true }) => {
 
   /* -------------------- create map ONCE -------------------- */
   useEffect(() => {
-    if (mapRef.current || !isValid(currentLocation)) return;
+    if (mapRef.current) return;
+    if (!mapContainerRef.current) return;
+    console.log("[Map] creating map instance");
 
-    mapRef.current = new mapboxgl.Map({
-      container: mapContainerRef.current,
-      center: [currentLocation.lng, currentLocation.lat],
-      zoom: DEFAULT_ZOOM,
-      attributionControl: false,
-      style: {
-        version: 8,
-        sources: {
-          osm: {
-            type: "raster",
-            tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
-            tileSize: 256,
+    try {
+      mapRef.current = new mapboxgl.Map({
+        container: mapContainerRef.current,
+        center: isValid(currentLocation)
+          ? [currentLocation.lng, currentLocation.lat]
+          : [0, 0],
+        zoom: isValid(currentLocation) ? DEFAULT_ZOOM : 2,
+        attributionControl: false,
+        style: {
+          version: 8,
+          sources: {
+            osm: {
+              type: "raster",
+              tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+              tileSize: 256,
+            },
           },
+          layers: [{ id: "osm", type: "raster", source: "osm" }],
         },
-        layers: [{ id: "osm", type: "raster", source: "osm" }],
-      },
-    });
+      });
 
-    mapRef.current.on("idle", () => {
-      setMapReady(true);
-      mapRef.current.resize();
-    });
+      mapRef.current.on("load", () => {
+        console.log("[Map] load event");
+      });
+      mapRef.current.on("idle", () => {
+        console.log("[Map] idle -> ready");
+        setMapReady(true);
+        try { mapRef.current.resize(); } catch {}
+      });
+      mapRef.current.on("moveend", () => {
+        try {
+          const center = mapRef.current.getCenter();
+          const zoom = mapRef.current.getZoom();
+          console.log("[Map] moveend center/zoom:", { center, zoom });
+        } catch {}
+      });
+      mapRef.current.on("error", (e) => {
+        console.error("[Map] error event", e?.error || e);
+      });
+    } catch (e) {
+      console.error("[Map] failed to create map", e);
+    }
 
     return () => {
-      mapRef.current?.remove();
+      console.log("[Map] removing map instance");
+      try { mapRef.current?.remove(); } catch {}
       mapRef.current = null;
     };
-  }, [currentLocation]);
+  }, []);
+
+  // If map was created before we had a location, set initial camera when a valid location appears
+  useEffect(() => {
+    if (!mapReady) return;
+    if (!isValid(currentLocation)) return;
+    if (!mapRef.current) return;
+    console.log("[Map] initial center/jump to current location", currentLocation);
+    try {
+      mapRef.current.jumpTo({
+        center: [currentLocation.lng, currentLocation.lat],
+        zoom: DEFAULT_ZOOM,
+      });
+    } catch (e) {
+      console.warn("[Map] jumpTo failed", e);
+    }
+  }, [mapReady, currentLocation]);
 
   /* -------------------- load route (SAFE) -------------------- */
   useEffect(() => {
@@ -75,6 +114,7 @@ const MapboxMap = ({ currentLocation, endLocation, follow = true }) => {
         const url = `https://router.project-osrm.org/route/v1/driving/${currentLocation.lng},${currentLocation.lat};${endLocation.lng},${endLocation.lat}?overview=full&geometries=geojson`;
         const res = await fetch(url);
         const data = await res.json();
+        console.log("[Map] OSRM response", data);
         const coords = data?.routes?.[0]?.geometry?.coordinates;
         if (!coords || coords.length < 2) return;
 
@@ -92,7 +132,7 @@ const MapboxMap = ({ currentLocation, endLocation, follow = true }) => {
         }
 
         // 🛣️ Google Maps style route (casing + main line)
-        mapRef.current.addLayer({
+        if (!mapRef.current.getLayer("route-casing")) mapRef.current.addLayer({
           id: "route-casing",
           type: "line",
           source: "route",
@@ -103,7 +143,7 @@ const MapboxMap = ({ currentLocation, endLocation, follow = true }) => {
           },
         });
 
-        mapRef.current.addLayer({
+        if (!mapRef.current.getLayer("route-line")) mapRef.current.addLayer({
           id: "route-line",
           type: "line",
           source: "route",
@@ -119,13 +159,14 @@ const MapboxMap = ({ currentLocation, endLocation, follow = true }) => {
         destEl.style.cssText =
           "width:22px;height:22px;border-radius:50%;background:#00c853;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.4)";
 
+        console.log("[Map] creating destination marker", endLocation);
         destinationMarkerRef.current = new mapboxgl.Marker({
           element: destEl,
         })
           .setLngLat([endLocation.lng, endLocation.lat])
           .addTo(mapRef.current);
       } catch (e) {
-        console.error("Route load failed", e);
+        console.error("[Map] Route load failed", e);
       }
     };
 
@@ -173,6 +214,7 @@ const MapboxMap = ({ currentLocation, endLocation, follow = true }) => {
 
     // 🎥 Google Maps–like camera follow
     if (follow) {
+      console.log("[Map] easing camera to", target);
       mapRef.current.easeTo({
         center: target,
         zoom: DEFAULT_ZOOM,
@@ -188,7 +230,7 @@ const MapboxMap = ({ currentLocation, endLocation, follow = true }) => {
       ref={mapContainerRef}
       style={{
         width: "100%",
-        height: "100vh",
+        height: "100%",
       }}
     />
   );

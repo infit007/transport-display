@@ -1,9 +1,10 @@
 // Display.jsx
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { tvDisplayAPI } from "../services/api";
 import MapboxMap from "./MapboxMap";
 import io from "socket.io-client";
 import { BACKEND_URL } from "../config/backend-simple.js";
+import { useLocation } from "../context/LocationContext.jsx";
 
 const Display = ({ busNumber, depot }) => {
   const selectedBusNumber =
@@ -31,6 +32,30 @@ const Display = ({ busNumber, depot }) => {
   const socketRef = useRef(null);
   const videoRef = useRef(null);
   const lastLivePositionRef = useRef(null);
+
+  // Global device GPS (context)
+  const { position: devicePosition, error: deviceError, permission, isWatching } = useLocation();
+
+  // Prefer devicePosition from context, fall back to server/bus currentLocation
+  const effectiveCurrentLocation = useMemo(() => {
+    return devicePosition || currentLocation;
+  }, [devicePosition, currentLocation]);
+
+  useEffect(() => {
+    if (devicePosition) {
+      console.log("[Display] Device GPS (context)", devicePosition);
+    }
+  }, [devicePosition]);
+
+  useEffect(() => {
+    if (deviceError) {
+      console.error("[Display] Device GPS error (context)", deviceError);
+    }
+  }, [deviceError]);
+
+  useEffect(() => {
+    console.log("[Display] GPS watch status:", { permission, isWatching });
+  }, [permission, isWatching]);
 
   // Helpers
   const isValidCoord = (lat, lng) =>
@@ -128,30 +153,12 @@ const Display = ({ busNumber, depot }) => {
     } catch {}
   };
 
-  // ---- Device geolocation (does NOT set start/end) ----
+  // Keep server/bus GPS updates visible in logs
   useEffect(() => {
-    if (!("geolocation" in navigator)) return;
-    let watchId = null;
-    try {
-      watchId = navigator.geolocation.watchPosition(
-        (pos) => {
-          const { latitude, longitude } = pos.coords || {};
-          if (typeof latitude === "number" && typeof longitude === "number") {
-            const loc = { lat: latitude, lng: longitude, ts: Date.now() };
-            setCurrentLocation(loc);
-            lastLivePositionRef.current = loc;
-          }
-        },
-        () => {},
-        { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
-      );
-    } catch {}
-    return () => {
-      try {
-        if (watchId != null) navigator.geolocation.clearWatch(watchId);
-      } catch {}
-    };
-  }, []);
+    if (currentLocation) {
+      console.log("[Display] Bus/server GPS", currentLocation);
+    }
+  }, [currentLocation]);
 
   // ---- Load bus data (NO fallbacks) ----
   const loadBusData = async () => {
@@ -714,7 +721,7 @@ const Display = ({ busNumber, depot }) => {
               <MapboxMap
                 startLocation={startLocation}
                 endLocation={endLocation}
-                currentLocation={currentLocation}
+                currentLocation={effectiveCurrentLocation}
                 stops={[]} // no default stops injected
                 busNumber={selectedBusNumber}
                 follow
