@@ -212,6 +212,42 @@ const MapboxMap = ({ currentLocation, endLocation, follow = true }) => {
         })
           .setLngLat([endLocation.lng, endLocation.lat])
           .addTo(mapRef.current);
+
+        // 🎥 Camera: outside -> inside
+        try {
+          // Compute route bounds
+          let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
+          for (const [lng, lat] of coords) {
+            if (lng < minLng) minLng = lng;
+            if (lat < minLat) minLat = lat;
+            if (lng > maxLng) maxLng = lng;
+            if (lat > maxLat) maxLat = lat;
+          }
+          const bounds = [[minLng, minLat], [maxLng, maxLat]];
+          console.log("[Map] fitBounds to route", bounds);
+          mapRef.current.fitBounds(bounds, {
+            padding: { top: 60, right: 60, bottom: 60, left: 60 },
+            duration: 700,
+            linear: true,
+            essential: true,
+          });
+
+          // After showing the full route, fly into the current position
+          setTimeout(() => {
+            try {
+              if (!isValid(currentLocation)) return;
+              const target = [currentLocation.lng, currentLocation.lat];
+              console.log("[Map] flyTo current after fitBounds", target);
+              mapRef.current.flyTo({
+                center: target,
+                zoom: DEFAULT_ZOOM,
+                speed: 0.8, // slower for smoother in-zoom
+                curve: 1.6,
+                essential: true,
+              });
+            } catch {}
+          }, 750);
+        } catch {}
       } catch (e) {
         console.error("[Map] Route load failed", e);
       }
@@ -259,15 +295,29 @@ const MapboxMap = ({ currentLocation, endLocation, follow = true }) => {
       vehicleMarkerRef.current.setLngLat(target);
     }
 
-    // 🎥 Google Maps–like camera follow
+    // 🎥 Follow camera without horizontal sweep
     if (follow) {
-      console.log("[Map] easing camera to", target);
-      mapRef.current.easeTo({
-        center: target,
-        zoom: DEFAULT_ZOOM,
-        duration: 700,
-        easing: (t) => t,
-      });
+      try {
+        const curCenter = mapRef.current.getCenter();
+        const dx = Math.abs(curCenter.lng - target[0]);
+        const dy = Math.abs(curCenter.lat - target[1]);
+        const dist = Math.max(dx, dy);
+        if (dist < 0.0005) {
+          // very small movement: jump to avoid visible sweep
+          mapRef.current.jumpTo({ center: target });
+        } else {
+          mapRef.current.flyTo({
+            center: target,
+            zoom: DEFAULT_ZOOM,
+            speed: 1.0,
+            curve: 1.4,
+            duration: 600,
+            essential: true,
+          });
+        }
+      } catch {
+        mapRef.current.easeTo({ center: target, zoom: DEFAULT_ZOOM, duration: 500 });
+      }
     }
   }, [currentLocation, follow, mapReady]);
 
