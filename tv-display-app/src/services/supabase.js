@@ -2,17 +2,19 @@ import { createClient } from '@supabase/supabase-js';
 
 // Use the same Supabase credentials as the main app
 // This ensures the TV Display App connects to the same database automatically
-// const SUPABASE_URL = 'https://eunaapesqbukbsrbgwna.supabase.co';
-import.meta.VITE_SUPABASE_URL;
-console.log("debug supabase url", import.meta.VITE_SUPABASE_URL);
+// Load from env (injected by Webpack DefinePlugin), with safe localStorage fallback in browser
+const envUrl = process.env.TV_SUPABASE_URL || '';
+const envAnon = process.env.TV_SUPABASE_ANON || '';
 
-// IMPORTANT: Replace this with your actual Supabase anon key
-// To get it: Go to your Supabase Dashboard → Settings → API → Copy "anon public" key
-// The key should start with "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV1bmFhcGVzcWJ1a2JzcmJnd25hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk3NTMwNjcsImV4cCI6MjA3NTMyOTA2N30.8_dWkhtHw8UkfeB4SBSYmdKE4zb7abBE0wC_U5cjC60';
+let lsUrl = '';
+let lsAnon = '';
+if (typeof window !== 'undefined') {
+  try { lsUrl = window.localStorage.getItem('TV_SUPABASE_URL') || ''; } catch {}
+  try { lsAnon = window.localStorage.getItem('TV_SUPABASE_ANON') || ''; } catch {}
+}
 
-console.log('debug Supabase URL:', SUPABASE_URL);
-console.log('debug Supabase configured:', !!SUPABASE_URL && !!SUPABASE_ANON);
+const SUPABASE_URL = envUrl || lsUrl || '';
+const SUPABASE_ANON = envAnon || lsAnon || '';
 
 // Only create client if we have valid credentials
 export const supabase = SUPABASE_URL && SUPABASE_ANON && !SUPABASE_ANON.includes('placeholder')

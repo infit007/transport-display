@@ -22,8 +22,11 @@ import "mapbox-gl/dist/mapbox-gl.css";
 import { lineString, point } from "@turf/helpers";
 import nearestPointOnLine from "@turf/nearest-point-on-line";
 
-mapboxgl.accessToken =
-  "pk.eyJ1IjoibWFwYm94IiwiYSI6ImNpejY4NXVycTA2emYycXBndHRqcmZ3N3gifQ.rJcFIG214AriISLbB6B5aw";
+// Prefer token from environment (injected by Webpack DefinePlugin)
+const MAPBOX_TOKEN = process.env.MAPBOX_TOKEN || "";
+if (MAPBOX_TOKEN) {
+  mapboxgl.accessToken = MAPBOX_TOKEN;
+}
 
 const DEFAULT_ZOOM = 17;
 

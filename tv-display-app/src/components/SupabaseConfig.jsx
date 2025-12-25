@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { configureSupabase } from '../services/supabase';
 
 const SupabaseConfig = ({ onConfigured }) => {
-  const [url, setUrl] = useState('https://eunaapesqbukbsrbgwna.supabase.co');
+  const [url, setUrl] = useState('');
   const [anonKey, setAnonKey] = useState('');
   const [isConfiguring, setIsConfiguring] = useState(false);
 
