@@ -67,7 +67,7 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
     { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
     { icon: Bus, label: "Fleet Management", path: "/fleet" },
     { icon: FileVideo, label: "Media Library", path: "/media" },
-    { icon: Newspaper, label: "News Feeds", path: "/news" },
+    { icon: Newspaper, label: "Push media and news", path: "/news" },
   ];
 
   return (

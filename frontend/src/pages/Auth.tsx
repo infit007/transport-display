@@ -37,8 +37,8 @@ const Auth = () => {
           .eq("user_id", user.id)
           .in("role", ["admin", "manager" as any]);
         
-        const hasAdminRole = roles?.some(role => role.role === "admin");
-        const hasManagerRole = roles?.some(role => role.role === "manager");
+        const hasAdminRole = roles?.some(role => (role as any).role === "admin");
+        const hasManagerRole = roles?.some(role => String((role as any).role) === "manager");
         
         if (hasAdminRole) {
           toast.success("Logged in as Administrator");

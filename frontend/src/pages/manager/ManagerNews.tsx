@@ -220,8 +220,8 @@ const ManagerNews = () => {
     <ManagerLayout>
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold">News Feeds</h1>
-          <p className="text-muted-foreground">Manage and push news updates to displays (Manager Portal)</p>
+          <h1 className="text-2xl font-bold">Push media and news</h1>
+          <p className="text-muted-foreground">Manage and push news and media to displays (Manager Portal)</p>
         </div>
 
         <Card>

@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Bus, FileVideo, Calendar, Tv, TrendingUp, Activity } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 interface Stats {
   totalBuses: number;
@@ -12,6 +13,7 @@ interface Stats {
 }
 
 const Dashboard = () => {
+  const navigate = useNavigate();
   const [stats, setStats] = useState<Stats>({
     totalBuses: 0,
     activeBuses: 0,
@@ -146,15 +148,15 @@ const Dashboard = () => {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
-              <div className="p-4 bg-muted/50 rounded-lg border border-border hover:border-primary/50 transition-colors cursor-pointer">
+              <div onClick={() => navigate('/news')} className="p-4 bg-muted/50 rounded-lg border border-border hover:border-primary/50 transition-colors cursor-pointer">
                 <p className="font-medium">Deploy Content to Fleet</p>
                 <p className="text-sm text-muted-foreground">Schedule media across all active buses</p>
               </div>
-              <div className="p-4 bg-muted/50 rounded-lg border border-border hover:border-primary/50 transition-colors cursor-pointer">
+              <div onClick={() => navigate('/fleet')} className="p-4 bg-muted/50 rounded-lg border border-border hover:border-primary/50 transition-colors cursor-pointer">
                 <p className="font-medium">Add New Bus</p>
                 <p className="text-sm text-muted-foreground">Register a new vehicle to the system</p>
               </div>
-              <div className="p-4 bg-muted/50 rounded-lg border border-border hover:border-primary/50 transition-colors cursor-pointer">
+              <div onClick={() => navigate('/media')} className="p-4 bg-muted/50 rounded-lg border border-border hover:border-primary/50 transition-colors cursor-pointer">
                 <p className="font-medium">Upload Media</p>
                 <p className="text-sm text-muted-foreground">Add videos and images to library</p>
               </div>

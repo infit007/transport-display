@@ -78,7 +78,7 @@ const ManagerLayout = ({ children }: ManagerLayoutProps) => {
   const menuItems = [
     { icon: LayoutDashboard, label: "Dashboard", path: "/manager/dashboard" },
     { icon: Bus, label: "Fleet Management", path: "/manager/fleet" },
-    { icon: Newspaper, label: "News Feeds", path: "/manager/news" },
+    { icon: Newspaper, label: "Push media and news", path: "/manager/news" },
   ];
 
   return (
