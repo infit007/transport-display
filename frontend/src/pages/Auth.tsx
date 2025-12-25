@@ -199,7 +199,7 @@ const Auth = () => {
             <div className="flex items-start gap-2">
               <Shield className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
               <p className="text-sm text-muted-foreground">
-                Secure authentication powered by Lovable Cloud. Your data is encrypted and protected.
+                Secure authentication. Your data is encrypted and protected.
               </p>
             </div>
           </div>

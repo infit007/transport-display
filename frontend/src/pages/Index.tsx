@@ -106,14 +106,14 @@ const Index = () => {
             Built with Modern Technology
           </h2>
           <p className="text-muted-foreground text-lg">
-            Powered by React, TypeScript, and Lovable Cloud (Supabase)
+            Powered by React, TypeScript, and Supabase
           </p>
         </div>
 
         <div className="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
           {[
             { title: "React + TypeScript", desc: "Modern, type-safe frontend" },
-            { title: "Lovable Cloud", desc: "Scalable backend infrastructure" },
+            { title: "Supabase", desc: "Scalable backend infrastructure" },
             { title: "Real-time Updates", desc: "WebSocket-powered live data" },
           ].map((tech) => (
             <div key={tech.title} className="p-6 bg-card/50 border border-primary/10 rounded-xl text-center">
