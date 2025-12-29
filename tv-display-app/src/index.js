@@ -6,6 +6,10 @@ import './styles.css';
 import './modules/landmarkListener.js';
 // Initialize overlay controller to pause ads and show on-screen message for 5s
 import './modules/landmarkOverlay.js';
+// Expose dev helpers to the browser console for local testing
+import './modules/devExpose.js';
+// Auto-send geolocation changes to backend for announcements (no UI changes)
+import './modules/autoAnnounceGps.js';
 
 const root = createRoot(document.getElementById('root'));
 root.render(<App />);

@@ -9,7 +9,7 @@ import devicesRoutes from './routes/devices.js';
 import mediaRoutes from './routes/media.js';
 import schedulesRoutes from './routes/schedules.js';
 import createNewsRoutes from './routes/news.js';
-import createAnnounceRoutes from './routes/announce.js';
+import createAnnounceRoutes, { detectAndAnnounceLandmark } from './routes/announce.js';
 
 const app = express();
 const server = http.createServer(app);
@@ -106,6 +106,12 @@ io.on('connection', (socket) => {
       }
 
       io.to(`bus:${deviceId}`).emit('gps:position', payload);
+
+      try {
+        await detectAndAnnounceLandmark(io, { busId: deviceId, lat: latNum, lng: lngNum });
+      } catch (e) {
+        console.error('detectAndAnnounceLandmark failed', e);
+      }
     } catch (err) {
       console.error('gps:update handler failed', err);
     }
