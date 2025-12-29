@@ -71,7 +71,7 @@ app.use('/api/devices', devicesRoutes);
 app.use('/api/media', mediaRoutes(io));
 app.use('/api/schedules', schedulesRoutes);
 app.use('/api/news', createNewsRoutes(io));
-app.use('/api', createAnnounceRoutes(io));
+app.use('/api', createAnnounceRoutes(io, supabase));
 
 // Socket.io basic channels
 io.on('connection', (socket) => {
@@ -108,7 +108,7 @@ io.on('connection', (socket) => {
       io.to(`bus:${deviceId}`).emit('gps:position', payload);
 
       try {
-        await detectAndAnnounceLandmark(io, { busId: deviceId, lat: latNum, lng: lngNum });
+        await detectAndAnnounceLandmark(io, { busId: deviceId, lat: latNum, lng: lngNum }, supabase);
       } catch (e) {
         console.error('detectAndAnnounceLandmark failed', e);
       }

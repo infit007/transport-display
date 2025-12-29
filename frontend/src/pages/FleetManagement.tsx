@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Link } from "react-router-dom";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Bus, Plus, MapPin, Clock } from "lucide-react";
+import { Bus, Plus, MapPin, Clock, Trash } from "lucide-react";
 import { toast } from "sonner";
 
 interface BusData {
@@ -119,6 +119,10 @@ const FleetManagement = () => {
   const [eSittingCapacity, setESittingCapacity] = useState<number>(48);
   const [eRunningHours, setERunningHours] = useState<12 | 15 | 24>(12);
   const [eBusType, setEBusType] = useState<"volvo" | "ac" | "non_ac">("non_ac");
+
+  // Midpoints state for Edit dialog
+  type MidpointRow = { id?: string; name: string; latitude: string; longitude: string; radius_m: string; order_index: number };
+  const [eMidpoints, setEMidpoints] = useState<MidpointRow[]>([]);
 
   useEffect(() => {
     fetchBuses();
@@ -262,6 +266,29 @@ const FleetManagement = () => {
     setERunningHours((bus.running_hours as any) || 12);
     setEBusType((bus.bus_type as any) || "non_ac");
     setEditDialogOpen(true);
+
+    // Load midpoints for this bus
+    (async () => {
+      try {
+        const { data } = await (supabase as any)
+          .from('route_midpoints')
+          .select('id,name,lat,lng,radius_m,order_index,active')
+          .eq('bus_number', bus.bus_number)
+          .eq('active', true)
+          .order('order_index', { ascending: true });
+        const rows: MidpointRow[] = (data || []).map((r: any, idx: number) => ({
+          id: r.id,
+          name: r.name || '',
+          latitude: String(r.lat ?? ''),
+          longitude: String(r.lng ?? ''),
+          radius_m: String(r.radius_m ?? '150'),
+          order_index: Number(r.order_index ?? idx)
+        }));
+        setEMidpoints(rows);
+      } catch {
+        setEMidpoints([]);
+      }
+    })();
   };
 
   const handleUpdateBus = async (e: React.FormEvent) => {
@@ -291,12 +318,67 @@ const FleetManagement = () => {
 
       const { error } = await supabase.from('buses').update(updates).eq('id', editingBus.id);
       if (error) throw error;
+
+      // Save midpoints after bus core fields are saved (use possibly edited bus number)
+      await saveMidpoints(eBusNumber);
       toast.success('Bus updated');
       setEditDialogOpen(false);
       setEditingBus(null);
       fetchBuses();
     } catch (err: any) {
       toast.error(err.message || 'Failed to update bus');
+    }
+  };
+
+  const addMidpointRow = () => {
+    setEMidpoints((prev) => ([
+      ...prev,
+      { name: '', latitude: '', longitude: '', radius_m: '150', order_index: prev.length }
+    ]));
+  };
+
+  const removeMidpointRow = (idx: number) => {
+    setEMidpoints((prev) => prev.filter((_, i) => i !== idx).map((r, i) => ({ ...r, order_index: i })));
+  };
+
+  const updateMidpointField = (idx: number, field: keyof MidpointRow, value: string) => {
+    setEMidpoints((prev) => prev.map((r, i) => i === idx ? ({ ...r, [field]: value }) as MidpointRow : r));
+  };
+
+  const saveMidpoints = async (busNumber: string) => {
+    try {
+      // Normalize rows to insert (no id)
+      const rows = eMidpoints
+        .filter(r => r.name && r.latitude && r.longitude)
+        .map(r => ({
+          bus_number: busNumber,
+          name: r.name,
+          lat: Number(r.latitude),
+          lng: Number(r.longitude),
+          radius_m: r.radius_m ? Number(r.radius_m) : 150,
+          order_index: Number(r.order_index ?? 0),
+          active: true,
+        }));
+
+      // Replace strategy: delete all for this bus, then insert current set
+      const { error: delErr } = await (supabase as any)
+        .from('route_midpoints')
+        .delete()
+        .eq('bus_number', busNumber);
+      if (delErr) throw delErr;
+
+      if (rows.length > 0) {
+        const { error: insErr } = await (supabase as any)
+          .from('route_midpoints')
+          .insert(rows);
+        if (insErr) throw insErr;
+        toast.success(`Saved ${rows.length} midpoint(s)`);
+      } else {
+        toast.info('No midpoints to save');
+      }
+    } catch (err: any) {
+      console.error('Failed saving midpoints', err);
+      toast.error(err.message || 'Failed to save midpoints');
     }
   };
 
@@ -758,6 +840,47 @@ const FleetManagement = () => {
                       <SelectItem value="non_ac">Non-AC</SelectItem>
                     </SelectContent>
                   </Select>
+                </div>
+
+                {/* Midpoints editor */}
+                <div className="space-y-3 border-t pt-4">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-base">Midpoints (Announcements)</Label>
+                    <Button type="button" variant="outline" size="sm" onClick={addMidpointRow} className="gap-2">
+                      <Plus className="w-4 h-4"/> Add Point
+                    </Button>
+                  </div>
+                  {eMidpoints.length === 0 && (
+                    <div className="text-sm text-muted-foreground">No midpoints yet. Click "Add Point" to create one.</div>
+                  )}
+                  <div className="space-y-3">
+                    {eMidpoints.map((mp, idx) => (
+                      <div key={`${mp.id ?? 'new'}-${idx}`} className="grid grid-cols-1 md:grid-cols-12 gap-2 items-end">
+                        <div className="md:col-span-3">
+                          <Label>Name</Label>
+                          <Input value={mp.name} onChange={(e)=>updateMidpointField(idx,'name',e.target.value)} placeholder="e.g., ISBT"/>
+                        </div>
+                        <div className="md:col-span-3">
+                          <Label>Latitude</Label>
+                          <Input type="number" step="0.00000001" value={mp.latitude} onChange={(e)=>updateMidpointField(idx,'latitude',e.target.value)} placeholder="30.3153"/>
+                        </div>
+                        <div className="md:col-span-3">
+                          <Label>Longitude</Label>
+                          <Input type="number" step="0.00000001" value={mp.longitude} onChange={(e)=>updateMidpointField(idx,'longitude',e.target.value)} placeholder="78.0322"/>
+                        </div>
+                        <div className="md:col-span-2">
+                          <Label>Radius (m)</Label>
+                          <Input type="number" value={mp.radius_m} onChange={(e)=>updateMidpointField(idx,'radius_m',e.target.value)} placeholder="150"/>
+                        </div>
+                        <div className="md:col-span-1 flex justify-end">
+                          <Button type="button" variant="destructive" size="icon" onClick={()=>removeMidpointRow(idx)}>
+                            <Trash className="w-4 h-4"/>
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="text-xs text-muted-foreground">Announcements will trigger when a bus comes within the configured radius of the nearest midpoint (1km max for approaching).</div>
                 </div>
               </form>
             </div>

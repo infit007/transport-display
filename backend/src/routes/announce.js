@@ -77,7 +77,7 @@ async function fetchOverpassWithFallback(query) {
   throw new Error('All Overpass mirrors failed');
 }
 
-export async function detectAndAnnounceLandmark(io, { busId, lat, lng, force = false }) {
+export async function detectAndAnnounceLandmark(io, { busId, lat, lng, force = false }, supabase = null) {
   const latNum = Number(lat);
   const lngNum = Number(lng);
   const busKey = (busId ?? '').toString().trim();
@@ -85,67 +85,108 @@ export async function detectAndAnnounceLandmark(io, { busId, lat, lng, force = f
     return { ok: false, error: 'Invalid payload' };
   }
 
-  const query = buildOverpassQuery(latNum, lngNum, 1000);
-  let json = null;
-  try {
-    json = await fetchOverpassWithFallback(query);
-  } catch (e) {
-    if (force) {
-      // Emit a test announcement even if Overpass is down
-      const busKey = (busId ?? '').toString().trim();
-      const fallbackName = lastAnnouncedMap.get(busKey)?.name || `Location (${latNum.toFixed(4)}, ${lngNum.toFixed(4)})`;
-      const stage = 'REACHED';
-      lastAnnouncedMap.set(busKey, { name: fallbackName, stage });
-      const payload = { type: 'LANDMARK', name: fallbackName, busId: busKey, stage };
-      try {
-        io.to(`bus:${busKey}`).emit('announce:landmark', payload);
-        io.emit('announce:landmark', payload);
-      } catch {}
-      return { ok: true, announced: true, name: fallbackName, stage, reason: 'forced_without_overpass' };
-    }
-    // Degrade gracefully: avoid surfacing 502 to clients
-    return { ok: true, announced: false, reason: 'overpass_failed' };
+  // 1) If custom midpoints exist for this bus, prefer them over Overpass
+  if (supabase) {
+    try {
+      const { data: mps } = await supabase
+        .from('route_midpoints')
+        .select('id,name,lat,lng,radius_m,order_index,active')
+        .eq('bus_number', busKey)
+        .eq('active', true)
+        .order('order_index', { ascending: true });
+
+      // Also pull start/end points from buses table, if coordinates exist
+      const { data: busRow } = await supabase
+        .from('buses')
+        .select('start_point,end_point,start_latitude,start_longitude,end_latitude,end_longitude')
+        .eq('bus_number', busKey)
+        .maybeSingle();
+
+      const candidates = Array.isArray(mps) ? [...mps] : [];
+      if (busRow) {
+        if (Number.isFinite(busRow?.start_latitude) && Number.isFinite(busRow?.start_longitude)) {
+          candidates.unshift({
+            id: 'start',
+            name: busRow.start_point || 'Start',
+            lat: Number(busRow.start_latitude),
+            lng: Number(busRow.start_longitude),
+            radius_m: 150,
+            order_index: -2,
+            active: true,
+          });
+        }
+        if (Number.isFinite(busRow?.end_latitude) && Number.isFinite(busRow?.end_longitude)) {
+          candidates.push({
+            id: 'end',
+            name: busRow.end_point || 'End',
+            lat: Number(busRow.end_latitude),
+            lng: Number(busRow.end_longitude),
+            radius_m: 150,
+            order_index: 999999,
+            active: true,
+          });
+        }
+      }
+
+      if (Array.isArray(candidates) && candidates.length > 0) {
+        let best = null;
+        for (const mp of candidates) {
+          const d = haversineMeters(latNum, lngNum, Number(mp.lat), Number(mp.lng));
+          const r = Number(mp.radius_m) || 150;
+          const withinApproach = d <= 1000; // announce only when within 1km of any configured point
+          if (!withinApproach) continue;
+          if (!best || d < best.distance) {
+            const label = mp.name && String(mp.name).trim()
+              ? String(mp.name)
+              : `Midpoint ${Number(mp.order_index ?? 0) + 1}`;
+            best = { name: label, distance: d, radius: r };
+          }
+        }
+
+        if (!best) {
+          return { ok: true, announced: false, reason: 'no_midpoint_within_radius' };
+        }
+
+        const stage = best.distance <= (best.radius || 150) ? 'REACHED' : 'APPROACHING';
+        const last = lastAnnouncedMap.get(busKey);
+        if (!force && last && last.name === best.name && last.stage === stage) {
+          return { ok: true, announced: false, name: best.name, stage };
+        }
+
+        lastAnnouncedMap.set(busKey, { name: best.name, stage });
+        const payload = { type: 'LANDMARK', name: best.name, busId: busKey, stage };
+        try {
+          if (stage === 'REACHED') {
+            // Emit 3 times at 3s intervals for clear audible announcement
+            for (let i = 0; i < 3; i += 1) {
+              setTimeout(() => {
+                try {
+                  io.to(`bus:${busKey}`).emit('announce:landmark', { ...payload, repeat: i + 1 });
+                  io.emit('announce:landmark', { ...payload, repeat: i + 1 });
+                } catch {}
+              }, i * 3000);
+            }
+          } else {
+            io.to(`bus:${busKey}`).emit('announce:landmark', payload);
+            io.emit('announce:landmark', payload);
+          }
+        } catch {}
+        return { ok: true, announced: true, name: best.name, stage };
+      }
+    } catch {}
   }
 
-  const elements = Array.isArray(json?.elements) ? json.elements : [];
-  let best = null;
-  for (const el of elements) {
-    const name = el?.tags?.name || el?.tags?.['name:en'] || null;
-    if (!name) continue;
-    const c = el.center || (el.type === 'node' ? { lat: el.lat, lon: el.lon } : null);
-    if (!c || !Number.isFinite(c.lat) || !Number.isFinite(c.lon)) continue;
-    const d = haversineMeters(latNum, lngNum, c.lat, c.lon);
-    if (!best || d < best.distance) best = { name, distance: d };
-  }
-
-  if (!best) {
-    return { ok: true, announced: false };
-  }
-
-  const stage = best.distance <= 150 ? 'REACHED' : 'APPROACHING';
-  const last = lastAnnouncedMap.get(busKey);
-  if (!force && last && last.name === best.name && last.stage === stage) {
-    return { ok: true, announced: false, name: best.name, stage };
-  }
-
-  lastAnnouncedMap.set(busKey, { name: best.name, stage });
-  const payload = { type: 'LANDMARK', name: best.name, busId: busKey, stage };
-
-  try {
-    io.to(`bus:${busKey}`).emit('announce:landmark', payload);
-    io.emit('announce:landmark', payload);
-  } catch {}
-
-  return { ok: true, announced: true, name: best.name, stage };
+  // 2) No custom midpoints configured for this bus; do not use Overpass anymore
+  return { ok: true, announced: false, reason: 'no_midpoints_configured' };
 }
 
-export default function createAnnounceRoutes(io) {
+export default function createAnnounceRoutes(io, supabase = null) {
   const router = Router();
 
   router.post('/announce-gps', async (req, res) => {
     try {
       const { busId, lat, lng, force = false } = req.body || {};
-      const result = await detectAndAnnounceLandmark(io, { busId, lat, lng, force });
+      const result = await detectAndAnnounceLandmark(io, { busId, lat, lng, force }, supabase);
       // Always return 200 for client resilience; pass through announced flag/reason
       return res.json(result);
     } catch (e) {

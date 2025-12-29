@@ -15,13 +15,17 @@ function extractBusNumberFromDom() {
     const elAttr = document.querySelector('[data-bus-number]');
     if (elAttr && elAttr.getAttribute('data-bus-number')) return elAttr.getAttribute('data-bus-number');
 
-    // Look for text elements that contain a likely bus number pattern (very forgiving)
-    const rx = /[A-Z]{1,3}-?\d{1,2}-?[A-Z]{0,2}-?\d{3,5}/;
+    // Look for text elements that contain a likely bus number pattern
+    // Use word boundaries to avoid swallowing trailing/leading letters (e.g., 'rUK-07-...')
+    const rx = /\b[A-Z]{1,3}-?\d{1,2}-?[A-Z]{0,2}-?\d{3,5}\b/;
     const candidates = Array.from(document.querySelectorAll('h1,h2,h3,h4,div,span,p,strong,b'));
     for (const el of candidates) {
       const t = (el.textContent || '').toUpperCase();
       const m = t.match(rx);
-      if (m) return m[0];
+      if (m && m[0]) {
+        const v = m[0].toUpperCase().trim();
+        return v;
+      }
     }
   } catch {}
   return null;
@@ -49,13 +53,17 @@ function resolveBusNumber() {
 
 async function postAnnounce(busId, lat, lng, force = false) {
   try {
+    console.debug('[autoAnnounce] POST /announce-gps', { busId, lat, lng, force });
     const r = await fetch(`${BACKEND_URL}/api/announce-gps`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ busId, lat, lng, force }),
     });
-    return await r.json();
+    const json = await r.json();
+    console.debug('[autoAnnounce] announce response', json);
+    return json;
   } catch (e) {
+    console.debug('[autoAnnounce] announce network error', e);
     return { ok: false, error: 'network' };
   }
 }
@@ -65,14 +73,38 @@ export function initAutoAnnounceGps() {
     if (typeof window === 'undefined' || !('geolocation' in navigator)) return null;
 
     let busId = resolveBusNumber();
+    if (busId) console.debug('[autoAnnounce] initial busId', busId);
     // Expose a setter for manual override while testing
     if (!window.setBusNumber) {
-      window.setBusNumber = (val) => { busId = String(val || '').trim() || null; return busId; };
+      window.setBusNumber = (val) => {
+        busId = String(val || '').trim() || null;
+        console.debug('[autoAnnounce] setBusNumber ->', busId);
+        // If we now have a busId and cached coords, fire the first forced post immediately
+        try {
+          if (busId && lastLat != null && lastLng != null && firstPost === true) {
+            const forceNow = true; // ensure first post is forced
+            firstPost = false;
+            postAnnounce(busId, lastLat, lastLng, forceNow);
+          }
+        } catch {}
+        return busId;
+      };
     }
 
     if (!busId) {
       // Retry busId resolution once after load (DOM might not be ready yet)
-      setTimeout(() => { busId = resolveBusNumber(); }, 2000);
+      setTimeout(() => {
+        busId = resolveBusNumber();
+        console.debug('[autoAnnounce] delayed busId', busId);
+        // If busId just resolved and we have a cached position, trigger forced post
+        try {
+          if (busId && lastLat != null && lastLng != null && firstPost === true) {
+            const forceNow = true;
+            firstPost = false;
+            postAnnounce(busId, lastLat, lastLng, forceNow);
+          }
+        } catch {}
+      }, 2000);
     }
 
     let lastLat = null;
@@ -97,14 +129,30 @@ export function initAutoAnnounceGps() {
         const lng = pos.coords.longitude;
         const now = Date.now();
 
-        if (!busId) return; // no bus number yet
-
+        console.debug('[autoAnnounce] geolocation pos', { lat, lng });
+        // Debounce small movements irrespective of busId so we retain last known position
         if (lastLat != null && lastLng != null) {
           const moved = haversineMeters(lastLat, lastLng, lat, lng);
           if (moved < minMeters && (now - lastAt) < minInterval) return;
         }
 
+        // Always cache latest location so we can announce once busId appears
         lastLat = lat; lastLng = lng; lastAt = now;
+
+        // If bus number isn't ready yet, schedule a short retry using cached coords
+        if (!busId) {
+          console.debug('[autoAnnounce] busId missing, scheduling retry');
+          setTimeout(() => {
+            try {
+              if (!busId) return;
+              const forceNow = firstPost === true || isAlwaysForce();
+              firstPost = false;
+              postAnnounce(busId, lastLat, lastLng, forceNow);
+            } catch {}
+          }, 1200);
+          return;
+        }
+
         const force = firstPost === true || isAlwaysForce();
         firstPost = false;
         postAnnounce(busId, lat, lng, force);
