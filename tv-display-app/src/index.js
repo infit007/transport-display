@@ -2,6 +2,10 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
 import './styles.css';
+// Initialize passive landmark announcements listener (no UI/logic changes)
+import './modules/landmarkListener.js';
+// Initialize overlay controller to pause ads and show on-screen message for 5s
+import './modules/landmarkOverlay.js';
 
 const root = createRoot(document.getElementById('root'));
 root.render(<App />);

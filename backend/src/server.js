@@ -9,6 +9,7 @@ import devicesRoutes from './routes/devices.js';
 import mediaRoutes from './routes/media.js';
 import schedulesRoutes from './routes/schedules.js';
 import createNewsRoutes from './routes/news.js';
+import createAnnounceRoutes from './routes/announce.js';
 
 const app = express();
 const server = http.createServer(app);
@@ -70,6 +71,7 @@ app.use('/api/devices', devicesRoutes);
 app.use('/api/media', mediaRoutes(io));
 app.use('/api/schedules', schedulesRoutes);
 app.use('/api/news', createNewsRoutes(io));
+app.use('/api', createAnnounceRoutes(io));
 
 // Socket.io basic channels
 io.on('connection', (socket) => {
