@@ -133,7 +133,7 @@ export async function detectAndAnnounceLandmark(io, { busId, lat, lng, force = f
         for (const mp of candidates) {
           const d = haversineMeters(latNum, lngNum, Number(mp.lat), Number(mp.lng));
           const r = Number(mp.radius_m) || 150;
-          const withinApproach = d <= 1000; // announce only when within 1km of any configured point
+          const withinApproach = d <= 500; // announce only when within 500m of any configured point
           if (!withinApproach) continue;
           if (!best || d < best.distance) {
             const label = mp.name && String(mp.name).trim()

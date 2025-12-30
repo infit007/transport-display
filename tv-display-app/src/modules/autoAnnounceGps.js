@@ -15,39 +15,70 @@ function extractBusNumberFromDom() {
     const elAttr = document.querySelector('[data-bus-number]');
     if (elAttr && elAttr.getAttribute('data-bus-number')) return elAttr.getAttribute('data-bus-number');
 
-    // Look for text elements that contain a likely bus number pattern
-    // Use word boundaries to avoid swallowing trailing/leading letters (e.g., 'rUK-07-...')
-    const rx = /\b[A-Z]{1,3}-?\d{1,2}-?[A-Z]{0,2}-?\d{3,5}\b/;
-    const candidates = Array.from(document.querySelectorAll('h1,h2,h3,h4,div,span,p,strong,b'));
-    for (const el of candidates) {
+    // Gather all text and try strict pattern first: AA-00-AA-0000 style
+    const strictRx = /\b[A-Z]{1,3}-\d{1,2}-[A-Z]{1,2}-\d{3,5}\b/g;
+    // Fallback lenient pattern (may capture partials); we'll choose the longest
+    const looseRx = /\b[A-Z]{1,3}(?:-\d{1,2})?(?:-[A-Z]{1,2})?-(?:\d{3,5})\b/g;
+    const nodes = Array.from(document.querySelectorAll('h1,h2,h3,h4,div,span,p,strong,b'));
+
+    // Search strict first
+    let best = '';
+    for (const el of nodes) {
       const t = (el.textContent || '').toUpperCase();
-      const m = t.match(rx);
-      if (m && m[0]) {
-        const v = m[0].toUpperCase().trim();
-        return v;
+      const matches = t.match(strictRx);
+      if (matches) {
+        for (const m of matches) {
+          if (m.length > best.length) best = m;
+        }
       }
     }
+    if (best) return best.trim();
+
+    // Fallback: search loose and pick the longest match to avoid 'K-9715'
+    for (const el of nodes) {
+      const t = (el.textContent || '').toUpperCase();
+      const matches = t.match(looseRx);
+      if (matches) {
+        for (const m of matches) {
+          if (m.length > best.length) best = m;
+        }
+      }
+    }
+    if (best) return best.trim();
   } catch {}
   return null;
 }
 
 function resolveBusNumber() {
+  const isValid = (s) => {
+    try {
+      if (!s) return false;
+      const up = String(s).toUpperCase().trim();
+      // Accept formats like UK-07-K-9715; ensure at least 3 groups and >= 8 chars
+      const strict = /^([A-Z]{1,3}-\d{1,2}-[A-Z]{1,2}-\d{3,5})$/;
+      const loose = /^[A-Z]{1,3}-\d{1,2}-[A-Z]{0,2}-\d{3,5}$/;
+      return strict.test(up) || loose.test(up);
+    } catch { return false; }
+  };
   // 1) Manual override
-  if (typeof window !== 'undefined' && window.BUS_NUMBER) return String(window.BUS_NUMBER);
+  if (typeof window !== 'undefined' && window.BUS_NUMBER) {
+    const v = String(window.BUS_NUMBER);
+    return isValid(v) ? v : null;
+  }
   // 2) Query params
   try {
     const sp = new URLSearchParams(window.location.search);
     const qp = sp.get('bus') || sp.get('busNumber') || sp.get('bus_number');
-    if (qp) return qp;
+    if (qp && isValid(qp)) return qp;
   } catch {}
   // 3) localStorage
   try {
     const ls = localStorage.getItem('busNumber') || localStorage.getItem('bus_number');
-    if (ls) return ls;
+    if (ls && isValid(ls)) return ls;
   } catch {}
   // 4) DOM text extraction
   const dom = extractBusNumberFromDom();
-  if (dom) return dom;
+  if (dom && isValid(dom)) return dom;
   return null;
 }
 
