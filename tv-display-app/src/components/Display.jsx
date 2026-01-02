@@ -41,6 +41,126 @@ const Display = ({ busNumber, depot }) => {
     return devicePosition || currentLocation;
   }, [devicePosition, currentLocation]);
 
+  
+  // Mobile-only responsive overrides to enlarge the map on landscape phones
+useEffect(() => {
+  const id = "mobile-tv-layout";
+  if (document.getElementById(id)) return;
+
+  const style = document.createElement("style");
+  style.id = id;
+  style.innerHTML = `
+  /* Hide BUS NUMBER label everywhere; keep only the number */
+  .bus-number-section .bus-label { display: none !important; }
+  /* Hide the whole BUS NUMBER block globally; we'll show a compact badge on the map */
+  .bus-number-section { display: none !important; }
+
+  /* Global bus badge overlay on the map */
+  .map-container { position: relative; }
+  .bus-badge {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    background: rgba(0,0,0,0.72);
+    color: #ffffff;
+    padding: 6px 10px;
+    border-radius: 8px;
+    font-size: 29px;
+    font-weight: 800;
+    line-height: 1;
+    z-index: 10;
+    pointer-events: none;
+  }
+
+  @media (max-width: 900px) {
+    .display-container {
+      height: 100vh;
+      padding: 0 !important;
+      overflow: hidden;
+    }
+
+    .main-content {
+      height: calc(100vh - 26px);
+      display: grid !important;
+      grid-template-rows: 60vh 18vh 14vh !important;
+    }
+
+    .media-panel {
+      grid-row: 2;
+    }
+
+    .info-panel {
+      grid-row: 1 / span 3;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .bus-number-section { display:none!important; }
+
+    .map-section { height: 60vh !important; min-height: 60vh !important; }
+
+    /* Bus badge overlay on the map for mobile */
+    .map-container { position: relative !important; }
+    .bus-badge {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      background: rgba(0,0,0,0.7);
+      color: #fff;
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 800;
+      z-index: 5;
+      pointer-events: none;
+    }
+
+    .stop-section { height: 7vh; padding: 4px 10px; background: #000; }
+
+    .stop-name {
+      font-size: 18px !important;
+      color: #00ffe1;
+      font-weight: bold;
+    }
+
+    .ticker-bar {
+      position: fixed;
+      bottom: 0;
+      height: 26px;
+      font-size: 12px;
+      background: black;
+      z-index: 999;
+    }
+  }
+
+  /* Laptop/tablet landscape tweaks to slim bars and give map more space */
+  @media (min-width: 901px) and (max-width: 1366px) and (orientation: landscape) {
+   .bus-badge {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      background: rgba(0,0,0,0.7);
+      color: #fff;
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 18px;
+      font-weight: 800;
+      z-index: 5;
+      pointer-events: none;
+    }
+    .info-panel { padding: 8px 8px 0 !important; }
+    .bus-number-section { padding: 6px 8px !important; }
+    .map-section { height: 55vh !important; min-height: 55vh !important; }
+    .stop-section { padding: 6px 10px !important; }
+    .stop-section .stop-label { font-size: 11px !important; }
+    .stop-section .stop-name { font-size: 18px !important; line-height: 0.8 !important; }
+    .ticker-bar { height: 28px !important; font-size: 13px !important; }
+  }
+  `;
+  document.head.appendChild(style);
+}, []);
+
+
   useEffect(() => {
     if (devicePosition) {
       console.log("[Display] Device GPS (context)", devicePosition);
@@ -715,6 +835,8 @@ const Display = ({ busNumber, depot }) => {
 
           <div className="map-section" style={{ flex: "1 1 auto", minHeight: 0, display: "flex" }}>
             <div className="map-container" style={{ width: "100%", height: "100%", position: "relative", minHeight: 0, flex: 1 }}>
+              {/* Global compact bus number badge on the map */}
+              <div className="bus-badge">{selectedBusNumber || ''}</div>
               <MapboxMap
                 startLocation={startLocation}
                 endLocation={endLocation}

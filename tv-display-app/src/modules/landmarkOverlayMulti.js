@@ -136,7 +136,6 @@ export default function initLandmarkOverlayMulti() {
         const resume = pauseAds();
         const remove = showOverlay([
           { text: lineGhw, cls: 'hi' },
-          { text: lineKmn, cls: 'hi' },
           { text: lineHi, cls: 'hi' },
           { text: lineEn }
         ]);

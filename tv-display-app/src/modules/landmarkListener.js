@@ -149,9 +149,6 @@ function buildTexts(name, stage) {
   const textGhw = stage === 'REACHED'
     ? `हम ${nameHi} मा पौंछिगे`
     : `हम ${nameHi} पोचण वाळ छ`;
-  const textKmn = stage === 'REACHED'
-    ? `हम ${nameHi} पहुँचि गयाँ।`
-    : `हम ${nameHi} पास पहुँचि लागि रयाँ।`;
   const textHI = stage === 'REACHED'
     ? `Hum ${nameHi} pahunch gaye hain`
     : `Hum ${nameHi} ke paas pahunch rahe hain`;
@@ -160,7 +157,6 @@ function buildTexts(name, stage) {
     : `We are approaching ${name}`;
   return [
     { text: textGhw, lang: 'hi-IN' },
-    { text: textKmn, lang: 'hi-IN' },
     { text: textHI, lang: 'hi-IN' },
     { text: textEN, lang: 'en-IN' },
   ];
