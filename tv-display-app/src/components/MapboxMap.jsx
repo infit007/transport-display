@@ -150,6 +150,9 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
         attributionControl: false,
         style: {
           version: 8,
+          // Provide glyphs for symbol text rendering (required when using text-field)
+          // Public demo glyphs work with mapbox-gl and maplibre
+          glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
           sources: {
             osm: {
               type: "raster",
@@ -358,6 +361,7 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
                 'text-offset': [0, 1.2],
                 'text-anchor': 'top',
                 'text-allow-overlap': false,
+                'text-font': ['Open Sans Regular','Arial Unicode MS Regular'],
               },
               paint: { 'text-color': '#111', 'text-halo-color': '#fff', 'text-halo-width': 1.2 },
             });

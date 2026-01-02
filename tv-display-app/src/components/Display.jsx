@@ -54,8 +54,14 @@ useEffect(() => {
   .bus-number-section .bus-label { display: none !important; }
   /* Hide the whole BUS NUMBER block globally; we'll show a compact badge on the map */
   .bus-number-section { display: none !important; }
+/* Desktop / large TV screens: larger ticker */
 
   /* Global bus badge overlay on the map */
+  .ticker-bar .ticker-content { 
+  font-size: inherit !important;
+  padding: 0 16px; 
+}
+
   .map-container { position: relative; }
   .bus-badge {
     position: absolute;
@@ -71,6 +77,7 @@ useEffect(() => {
     z-index: 10;
     pointer-events: none;
   }
+    
 
   /* Mobile landscape: 2/3 media on left, 1/3 info on right */
   @media (max-width: 900px) and (orientation: landscape) {
@@ -127,7 +134,7 @@ useEffect(() => {
     }
 
     .main-content {
-      height: calc(100vh - 26px);
+      height: calc(100vh - 34px);
       display: grid !important;
       grid-template-rows: 60vh 18vh 14vh !important;
     }
@@ -194,8 +201,8 @@ useEffect(() => {
     .ticker-bar {
       position: fixed;
       bottom: 0;
-      height: 26px;
-      font-size: 12px;
+      height: 34px;
+      font-size: 15px;
       background: black;
       z-index: 999;
     }
@@ -204,7 +211,7 @@ useEffect(() => {
   /* Very short landscape (e.g., iPhone 12 Pro 844x390) */
   @media (max-width: 900px) and (max-height: 420px) and (orientation: landscape) {
     .main-content {
-      height: calc(100vh - 22px);
+      height: calc(100vh - 24px);
       display: grid !important;
       grid-template-columns: 66.666% 33.334% !important; /* media | info (map+stops) */
       grid-template-rows: 1fr !important; /* single row */
@@ -247,7 +254,7 @@ useEffect(() => {
     .stop-section .stop-label { font-size: 10px !important; }
     .stop-section .stop-name { font-size: 15px !important; line-height: 1.1 !important; }
     .bus-badge { font-size: 12px; top: 6px; left: 6px; padding: 4px 8px; }
-    .ticker-bar { height: 20px !important; font-size: 11px !important; }
+    .ticker-bar { height: 24px !important; font-size: 13px !important; }
   }
 
   /* Laptop/tablet landscape tweaks to slim bars and give map more space */
@@ -271,9 +278,17 @@ useEffect(() => {
     .stop-section { padding: 6px 10px !important; }
     .stop-section .stop-label { font-size: 11px !important; }
     .stop-section .stop-name { font-size: 18px !important; line-height: 0.8 !important; }
-    .ticker-bar { height: 28px !important; font-size: 13px !important; }
+    .ticker-bar { height: 50px !important; font-size: 22px !important; }
+    .ticker-bar .ticker-content { font-weight: 600; letter-spacing: 0.2px; }
   }
-  `;
+
+  /* Desktop / large TV screens: larger ticker */
+  @media (min-width: 1367px) {
+    .ticker-bar { height: 80px !important; font-size: 50px !important; }
+    .ticker-bar .ticker-content { padding: 0 16px; font-weight: 600; letter-spacing: 0.2px; }
+  }
+  `
+  ;
   document.head.appendChild(style);
 }, []);
 

@@ -42,38 +42,44 @@ function ensureUnlocked() {
 function pickVoice(preferLang = 'en-IN') {
   try {
     const voices = window.speechSynthesis.getVoices() || [];
-    const langLc = (preferLang || '').toLowerCase();
+    const want = (preferLang || '').toLowerCase();
 
-    // Prefer high-quality vendors/names when available
-    const prefs = {
-      'hi-in': ['google', 'microsoft'],
-      'en-in': ['google', 'microsoft'],
-      'en-gb': ['google', 'microsoft'],
-      'default': ['google', 'microsoft']
-    };
-    const prefList = prefs[langLc] || prefs[langLc.split('-')[0] + '-in'] || prefs['default'];
+    const HIGH_QUALITY = [
+      'microsoft heera',
+      'microsoft kalpana',
+      'microsoft ravi',
+      'microsoft neha',
+      'microsoft prabhat',
+      'google हिन्दी',
+      'google hindi',
+      'google english (india)',
+      'google en-in',
+      'google hi-in',
+      'samsung hindi',
+      'samsung en-in',
+      'en-in-x-anc-network',
+      'hi-in-x-anc-network'
+    ];
 
-    // 1) Exact language + preferred vendor
-    for (const p of prefList) {
-      const v = voices.find(v => (v.lang || '').toLowerCase() === langLc && (v.name || '').toLowerCase().includes(p));
+    // 1️⃣ Perfect language + premium vendor
+    for (const key of HIGH_QUALITY) {
+      const v = voices.find(v =>
+        (v.lang || '').toLowerCase().startsWith(want.split('-')[0]) &&
+        (v.name || '').toLowerCase().includes(key)
+      );
       if (v) return v;
     }
-    // 2) Family match + preferred vendor
-    for (const p of prefList) {
-      const v = voices.find(v => (v.lang || '').toLowerCase().startsWith(langLc.split('-')[0] + '-') && (v.name || '').toLowerCase().includes(p));
-      if (v) return v;
-    }
-    // 3) Exact language
-    const exact = voices.find(v => (v.lang || '').toLowerCase() === langLc);
-    if (exact) return exact;
-    // 4) Language family
-    const family = voices.find(v => (v.lang || '').toLowerCase().startsWith(langLc.split('-')[0] + '-'));
-    if (family) return family;
-    // 5) Fallbacks
-    const enIN = voices.find(v => (v.lang || '').toLowerCase().startsWith('en-in'));
-    if (enIN) return enIN;
-    const en = voices.find(v => (v.lang || '').toLowerCase().startsWith('en-'));
-    return en || null;
+
+    // 2️⃣ Any Neural / Network voice
+    const neural = voices.find(v => /neural|network|online|natural|enhanced/i.test(v.name));
+    if (neural) return neural;
+
+    // 3️⃣ Any Indian voice
+    const indian = voices.find(v => v.lang?.toLowerCase().includes('in'));
+    if (indian) return indian;
+
+    // 4️⃣ Absolute fallback
+    return voices[0] || null;
   } catch { return null; }
 }
 
@@ -162,16 +168,17 @@ function pump() {
     // Per-language tuning for more natural cadence
     const ll = (utter.lang || '').toLowerCase();
     if (ll.startsWith('hi')) {
-      utter.rate = 0.95;
-      utter.pitch = 1.05;
-    } else if (ll.startsWith('en-in')) {
-      utter.rate = 1.0;
-      utter.pitch = 1.0;
-    } else {
-      utter.rate = 1.0;
-      utter.pitch = 1.0;
+      utter.rate = 0.92;
+      utter.pitch = 1.15;
+      utter.volume = 1.0;
     }
-    utter.volume = 1.0;
+    else if (ll.startsWith('en-in')) {
+      utter.rate = 0.96;
+      utter.pitch = 1.05;
+      utter.volume = 1.0;
+    } else {
+      utter.volume = 1.0;
+    }
     const v = pickVoice(utter.lang);
     if (v) utter.voice = v;
 
