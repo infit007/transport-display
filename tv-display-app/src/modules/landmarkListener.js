@@ -43,11 +43,33 @@ function pickVoice(preferLang = 'en-IN') {
   try {
     const voices = window.speechSynthesis.getVoices() || [];
     const langLc = (preferLang || '').toLowerCase();
+
+    // Prefer high-quality vendors/names when available
+    const prefs = {
+      'hi-in': ['google', 'microsoft'],
+      'en-in': ['google', 'microsoft'],
+      'en-gb': ['google', 'microsoft'],
+      'default': ['google', 'microsoft']
+    };
+    const prefList = prefs[langLc] || prefs[langLc.split('-')[0] + '-in'] || prefs['default'];
+
+    // 1) Exact language + preferred vendor
+    for (const p of prefList) {
+      const v = voices.find(v => (v.lang || '').toLowerCase() === langLc && (v.name || '').toLowerCase().includes(p));
+      if (v) return v;
+    }
+    // 2) Family match + preferred vendor
+    for (const p of prefList) {
+      const v = voices.find(v => (v.lang || '').toLowerCase().startsWith(langLc.split('-')[0] + '-') && (v.name || '').toLowerCase().includes(p));
+      if (v) return v;
+    }
+    // 3) Exact language
     const exact = voices.find(v => (v.lang || '').toLowerCase() === langLc);
     if (exact) return exact;
+    // 4) Language family
     const family = voices.find(v => (v.lang || '').toLowerCase().startsWith(langLc.split('-')[0] + '-'));
     if (family) return family;
-    // Fallbacks
+    // 5) Fallbacks
     const enIN = voices.find(v => (v.lang || '').toLowerCase().startsWith('en-in'));
     if (enIN) return enIN;
     const en = voices.find(v => (v.lang || '').toLowerCase().startsWith('en-'));
@@ -126,11 +148,30 @@ function pump() {
     ensureUnlocked();
     try { window.speechSynthesis.resume(); } catch {}
 
+    // Ensure voices are loaded; if not, wait for voiceschanged and retry
+    const voices = window.speechSynthesis.getVoices() || [];
+    if (!voices.length) {
+      const once = () => { try { window.speechSynthesis.onvoiceschanged = null; } catch {}; setTimeout(pump, 0); };
+      try { window.speechSynthesis.onvoiceschanged = once; } catch { setTimeout(pump, 150); }
+      return;
+    }
+
     const item = q.shift();
     const utter = new SpeechSynthesisUtterance(item.text);
     utter.lang = item.lang || 'en-IN';
-    utter.rate = 1.0;
-    utter.pitch = 1.0;
+    // Per-language tuning for more natural cadence
+    const ll = (utter.lang || '').toLowerCase();
+    if (ll.startsWith('hi')) {
+      utter.rate = 0.95;
+      utter.pitch = 1.05;
+    } else if (ll.startsWith('en-in')) {
+      utter.rate = 1.0;
+      utter.pitch = 1.0;
+    } else {
+      utter.rate = 1.0;
+      utter.pitch = 1.0;
+    }
+    utter.volume = 1.0;
     const v = pickVoice(utter.lang);
     if (v) utter.voice = v;
 

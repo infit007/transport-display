@@ -72,6 +72,53 @@ useEffect(() => {
     pointer-events: none;
   }
 
+  /* Mobile landscape: 2/3 media on left, 1/3 info on right */
+  @media (max-width: 900px) and (orientation: landscape) {
+    .main-content {
+      height: calc(100vh - 26px);
+      display: grid !important;
+      grid-template-columns: 66.666% 33.334% !important; /* media | info */
+      grid-template-rows: 1fr !important;
+      column-gap: 8px;
+      align-items: stretch;
+    }
+
+    .media-panel {
+      grid-column: 1;
+      grid-row: 1 !important;
+      height: 100% !important;
+      min-height: 0 !important;
+      overflow: hidden !important;
+      display: flex !important;
+      position: relative !important;
+      background: #000;
+    }
+    .media-panel .media-content,
+    .media-panel video.media-content,
+    .media-panel img.media-content {
+      position: absolute !important;
+      inset: 0;
+      width: 100% !important;
+      height: 100% !important;
+      object-fit: cover !important;
+      object-position: center center !important;
+      display: block !important;
+    }
+
+    .info-panel {
+      grid-column: 2;
+      grid-row: 1 !important;
+      display: flex !important;
+      flex-direction: column !important;
+      min-height: 0 !important;
+    }
+    .map-section { flex: 1 1 auto !important; min-height: 0 !important; height: auto !important; }
+    .stop-section { height: 6vh; padding: 4px 8px; }
+  }
+ /* Ticker: pin to bottom and ensure full width with clean overflow */
+  .ticker-bar { left: 0; right: 0; width: 100%; box-shadow: 0 -1px 0 rgba(255,255,255,0.08); }
+  .ticker-bar .ticker-content { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 10px; }
+
   @media (max-width: 900px) {
     .display-container {
       height: 100vh;
@@ -87,6 +134,27 @@ useEffect(() => {
 
     .media-panel {
       grid-row: 2;
+    }
+
+    .media-panel {
+      height: 18vh !important;
+      overflow: hidden !important;
+      display: flex !important;
+      position: relative !important;
+      background: #000;
+    }
+    .media-panel .media-content {
+      position: absolute !important;
+      top: 0; left: 0; right: 0; bottom: 0;
+      width: 100% !important;
+      height: 100% !important;
+      object-fit: cover !important;
+      flex: 1 1 auto !important;
+      display: block !important;
+      object-position: center center !important;
+      /* Slight mobile-only zoom to crop intrinsic letterboxing inside some creatives */
+      transform: scale(1.08);
+      transform-origin: center center;
     }
 
     .info-panel {
@@ -131,6 +199,55 @@ useEffect(() => {
       background: black;
       z-index: 999;
     }
+  }
+
+  /* Very short landscape (e.g., iPhone 12 Pro 844x390) */
+  @media (max-width: 900px) and (max-height: 420px) and (orientation: landscape) {
+    .main-content {
+      height: calc(100vh - 22px);
+      display: grid !important;
+      grid-template-columns: 66.666% 33.334% !important; /* media | info (map+stops) */
+      grid-template-rows: 1fr !important; /* single row */
+      /* ensure previous row template from mobile block doesn't interfere */
+      row-gap: 0 !important;
+      column-gap: 8px;
+      align-items: stretch;
+    }
+    .media-panel {
+      grid-column: 1;
+      grid-row: 1 !important;
+      height: 100% !important;
+      min-height: 0 !important;
+      overflow: hidden !important;
+      display: flex !important;
+      align-self: stretch !important;
+      background: #000;
+      position: relative !important;
+    }
+    .media-panel video.media-content,
+    .media-panel img.media-content,
+    .media-panel .media-content {
+      position: absolute !important;
+      top: 0; left: 0; right: 0; bottom: 0;
+      width: 100% !important;
+      height: 100% !important;
+      max-width: none !important;
+      max-height: none !important;
+      object-fit: cover !important;
+      object-position: center center !important;
+      flex: 1 1 auto !important;
+      display: block !important;
+      /* Slightly stronger zoom on ultra-short landscape to eliminate visible bars */
+      transform: scale(1.12);
+      transform-origin: center center;
+    }
+    .info-panel { grid-column: 2; display: flex; flex-direction: column; min-height: 0; }
+    .map-section { height: 58vh !important; min-height: 58vh !important; }
+    .stop-section { height: 5.5vh; padding: 4px 8px; }
+    .stop-section .stop-label { font-size: 10px !important; }
+    .stop-section .stop-name { font-size: 15px !important; line-height: 1.1 !important; }
+    .bus-badge { font-size: 12px; top: 6px; left: 6px; padding: 4px 8px; }
+    .ticker-bar { height: 20px !important; font-size: 11px !important; }
   }
 
   /* Laptop/tablet landscape tweaks to slim bars and give map more space */
