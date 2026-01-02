@@ -66,22 +66,39 @@ function getTransliterator() {
   const charMap = {
     a: 'अ', b: 'ब', c: 'क', d: 'द', e: 'ए', f: 'फ', g: 'ग', h: 'ह', i: 'इ',
     j: 'ज', k: 'क', l: 'ल', m: 'म', n: 'न', o: 'ओ', p: 'प', q: 'क', r: 'र',
-    s: 'स', t: 'ट', u: 'उ', v: 'व', w: 'व', x: 'क्स', y: 'य', z: 'ज़'
+    s: 'स', t: 'त', u: 'उ', v: 'व', w: 'व', x: 'क्स', y: 'य', z: 'ज़'
   };
   const tokenDict = {
     railway: 'रेलवे', station: 'स्टेशन', bus: 'बस', stand: 'स्टैंड', stop: 'स्टॉप',
     terminal: 'टर्मिनल', airport: 'हवाई अड्डा', hospital: 'अस्पताल', college: 'कॉलेज',
     university: 'विश्वविद्यालय', market: 'बाज़ार', mall: 'मॉल', road: 'रोड',
-    chowk: 'چौक', bridge: 'पुल', temple: 'मंदिर', isbt: 'आईएसबीटी',
+    chowk: 'चौक', bridge: 'पुल', temple: 'मंदिर', isbt: 'आईएसबीटी', tower: 'टावर'
   };
+  const phraseDict = new Map([
+    ['clock tower', 'घंटाघर'],
+    ['ghantaghar', 'घंटाघर'],
+    ['ghanta ghar', 'घंटाघर'],
+    ['isbt dehradun', 'आईएसबीटी देहरादून'],
+    ['dehradun', 'देहरादून'],
+    ['rishikesh', 'ऋषिकेश'],
+    ['haridwar', 'हरिद्वार'],
+    ['rajpur', 'राजपुर'],
+    ['raipur', 'रायपुर'],
+    ['ballupur', 'बल्लूपुर'],
+    ['balliwala', 'बल्लिवाला'],
+  ]);
   function toHindi(input) {
     try {
       if (!input) return '';
       if (/[^\x20-\x7E]/.test(input)) return input; // already non-latin
-      const parts = String(input).split(/(\s+|-|,|\.|&|\/)/);
+      const raw = String(input).trim();
+      const lowAll = raw.toLowerCase();
+      if (phraseDict.has(lowAll)) return phraseDict.get(lowAll);
+      const parts = raw.split(/(\s+|-|,|\.|&|\/)/);
       const out = parts.map((p) => {
         if (!p || /^(\s+|-|,|\.|&|\/)$/.test(p)) return p;
         const low = p.toLowerCase();
+        if (phraseDict.has(low)) return phraseDict.get(low);
         if (tokenDict[low]) return tokenDict[low];
         let s = low;
         for (const [k, v] of comboMap) s = s.replaceAll(k, v);
@@ -125,6 +142,56 @@ function pump() {
   } catch { speaking = false; }
 }
 
+// Build 4-language TTS texts from a name/stage
+function buildTexts(name, stage) {
+  const { toHindi } = getTransliterator();
+  const nameHi = toHindi(name);
+  const textGhw = stage === 'REACHED'
+    ? `हम ${nameHi} मा पौंछिगे`
+    : `हम ${nameHi} पोचण वाळ छ`;
+  const textKmn = stage === 'REACHED'
+    ? `हम ${nameHi} पहुँचि गयाँ।`
+    : `हम ${nameHi} पास पहुँचि लागि रयाँ।`;
+  const textHI = stage === 'REACHED'
+    ? `Hum ${nameHi} pahunch gaye hain`
+    : `Hum ${nameHi} ke paas pahunch rahe hain`;
+  const textEN = stage === 'REACHED'
+    ? `We have reached ${name}`
+    : `We are approaching ${name}`;
+  return [
+    { text: textGhw, lang: 'hi-IN' },
+    { text: textKmn, lang: 'hi-IN' },
+    { text: textHI, lang: 'hi-IN' },
+    { text: textEN, lang: 'en-IN' },
+  ];
+}
+
+// 30s booster after refresh: keep audio alive by re-enqueuing last payload
+const bootUntil = Date.now() + 30000;
+let boosterInterval = null;
+let lastTexts = null;
+let lastSpokenAt = 0;
+
+function ensureBooster() {
+  if (boosterInterval) return;
+  boosterInterval = setInterval(() => {
+    try {
+      if (Date.now() > bootUntil) {
+        clearInterval(boosterInterval);
+        boosterInterval = null;
+        return;
+      }
+      if (!lastTexts || !lastTexts.length) return;
+      // Re-enqueue set roughly every 3s
+      if ((Date.now() - lastSpokenAt) >= 2800) {
+        for (const item of lastTexts) enqueue(item.text, item.lang);
+        lastSpokenAt = Date.now();
+      }
+      try { window.speechSynthesis.resume(); } catch {}
+    } catch {}
+  }, 600);
+}
+
 export function initLandmarkAnnouncements() {
   try {
     const socket = io(BACKEND_URL, {
@@ -143,14 +210,11 @@ export function initLandmarkAnnouncements() {
         const name = (payload.name || '').trim();
         if (!name) return;
         const stage = (payload.stage || 'APPROACHING').toUpperCase();
-        const { toHindi } = getTransliterator();
-        const nameHi = toHindi(name);
-        // Build EN and HI variants
-        const textEN = stage === 'REACHED' ? `We have reached ${name}` : `We are approaching ${name}`;
-        const textHI = stage === 'REACHED' ? `Hum ${nameHi} par pahunch gaye hain` : `Hum ${nameHi} ke paas pahunch rahe hain`;
-        // Enqueue Hindi first, then English (to match overlay order)
-        enqueue(textHI, 'hi-IN');
-        enqueue(textEN, 'en-IN');
+        const texts = buildTexts(name, stage);
+        for (const item of texts) enqueue(item.text, item.lang);
+        lastTexts = texts;
+        lastSpokenAt = Date.now();
+        ensureBooster();
       } catch {}
     });
 

@@ -1,23 +1,41 @@
 import io from 'socket.io-client';
 import { BACKEND_URL } from '../config/backend-simple.js';
 
-// Basic roman->Devanagari transliterator for place names
+// Basic roman->Devanagari transliterator for place names (with phrase overrides)
 function toHindi(input) {
   try {
     if (!input) return '';
     if (/[^\x20-\x7E]/.test(input)) return input; // already non-latin
+    // Phrase-level overrides for common Uttarakhand landmarks and patterns
+    const phraseDict = new Map([
+      ['clock tower', 'घंटाघर'],
+      ['ghantaghar', 'घंटाघर'],
+      ['ghanta ghar', 'घंटाघर'],
+      ['isbt dehradun', 'आईएसबीटी देहरादून'],
+      ['dehradun', 'देहरादून'],
+      ['rishikesh', 'ऋषिकेश'],
+      ['haridwar', 'हरिद्वार'],
+      ['rajpur', 'राजपुर'],
+      ['raipur', 'रायपुर'],
+      ['ballupur', 'बल्लूपुर'],
+      ['balliwala', 'बल्लिवाला'],
+    ]);
     const combo = [
       ['sh', 'श'], ['chh', 'छ'], ['ch', 'च'], ['th', 'थ'], ['dh', 'ध'],
       ['ph', 'फ'], ['bh', 'भ'], ['kh', 'ख'], ['gh', 'घ'], ['ng', 'ङ'],
       ['aa', 'आ'], ['ee', 'ई'], ['ii', 'ई'], ['oo', 'ऊ'], ['uu', 'ऊ'],
       ['ai', 'ऐ'], ['au', 'औ']
     ];
-    const cmap = { a:'अ',b:'ब',c:'क',d:'द',e:'ए',f:'फ',g:'ग',h:'ह',i:'इ',j:'ज',k:'क',l:'ल',m:'म',n:'न',o:'ओ',p:'प',q:'क',r:'र',s:'स',t:'ट',u:'उ',v:'व',w:'व',x:'क्स',y:'य',z:'ज़' };
-    const dict = { railway:'रेलवे', station:'स्टेशन', bus:'बस', stand:'स्टैंड', stop:'स्टॉप', terminal:'टर्मिनल', airport:'हवाई अड्डा', hospital:'अस्पताल', college:'कॉलेज', university:'विश्वविद्यालय', market:'बाज़ार', mall:'मॉल', road:'रोड', chowk:'चौक', bridge:'पुल', temple:'मंदिर', isbt:'आईएसबीटी' };
-    const parts = String(input).split(/(\s+|-|,|\.|&|\/)/);
+    const cmap = { a:'अ',b:'ब',c:'क',d:'द',e:'ए',f:'फ',g:'ग',h:'ह',i:'इ',j:'ज',k:'क',l:'ल',m:'म',n:'न',o:'ओ',p:'प',q:'क',r:'र',s:'स',t:'त',u:'उ',v:'व',w:'व',x:'क्स',y:'य',z:'ज़' };
+    const dict = { railway:'रेलवे', station:'स्टेशन', bus:'बस', stand:'स्टैंड', stop:'स्टॉप', terminal:'टर्मिनल', airport:'हवाई अड्डा', hospital:'अस्पताल', college:'कॉलेज', university:'विश्वविद्यालय', market:'बाज़ार', mall:'मॉल', road:'रोड', chowk:'चौक', bridge:'पुल', temple:'मंदिर', isbt:'आईएसबीटी', tower:'टावर' };
+    const raw = String(input).trim();
+    const lowAll = raw.toLowerCase();
+    if (phraseDict.has(lowAll)) return phraseDict.get(lowAll);
+    const parts = raw.split(/(\s+|-|,|\.|&|\/)/);
     const out = parts.map(p => {
       if (!p || /(\s+|-|,|\.|&|\/)/.test(p)) return p;
       const low = p.toLowerCase();
+      if (phraseDict.has(low)) return phraseDict.get(low);
       if (dict[low]) return dict[low];
       let s = low;
       for (const [k,v] of combo) s = s.replaceAll(k, v);
@@ -68,6 +86,11 @@ function pauseAds() {
 
 let currentRemove = null;
 const lastApproachShownAt = new Map(); // name -> ts
+// Control cadence so overlay duration isn't cut short by frequent events
+const SHOW_MS = 12000; // 12s visible
+const GAP_MS = 2000;   // 2s gap between overlays
+let showingUntil = 0;  // timestamp when current show should end
+let gapUntil = 0;      // timestamp until next show allowed
 
 export default function initLandmarkOverlayMulti() {
   try {
@@ -89,19 +112,43 @@ export default function initLandmarkOverlayMulti() {
         }
 
         const nameHi = toHindi(name);
-        const lineHi = stage === 'REACHED' ? `हम ${nameHi} पर पहुँच गए हैं` : `हम ${nameHi} के पास पहुँच रहे हैं`;
+        // Regional templates (Garhwali, Kumaoni) provided by user
+        const lineGhw = stage === 'REACHED'
+          ? `हम ${nameHi} मा पौंछिगे`
+          : `हम ${nameHi} पोचण वाळ छ`;
+        const lineKmn = stage === 'REACHED'
+          ? `हम ${nameHi} पहुँचि गयाँ।`
+          : `हम ${nameHi} पास पहुँचि लागि रयाँ।`;
+        const lineHi = stage === 'REACHED' ? `हम ${nameHi} पहुँच गए हैं` : `हम ${nameHi} के पास पहुँच रहे हैं`;
         const lineEn = stage === 'REACHED' ? `We have reached ${name}` : `We are approaching ${name}`;
 
-        // Replace any currently visible overlay
-        try { if (currentRemove) currentRemove(); } catch {}
+        // Respect current show/gap windows to avoid flicker or premature hides
+        const now = Date.now();
+        if (now < showingUntil) {
+          // Already showing; ignore repeat events so timer isn't reset
+          return;
+        }
+        if (now < gapUntil) {
+          // In enforced gap; ignore until next window
+          return;
+        }
+
         const resume = pauseAds();
         const remove = showOverlay([
+          { text: lineGhw, cls: 'hi' },
+          { text: lineKmn, cls: 'hi' },
           { text: lineHi, cls: 'hi' },
           { text: lineEn }
         ]);
         currentRemove = () => { try { remove(); } catch {}; try { resume(); } catch {}; };
-
-        setTimeout(() => { try { currentRemove && currentRemove(); currentRemove = null; } catch {} }, 3000);
+        showingUntil = now + SHOW_MS;
+        gapUntil = showingUntil + GAP_MS;
+        setTimeout(() => {
+          try {
+            if (currentRemove) currentRemove();
+          } catch {}
+          currentRemove = null;
+        }, SHOW_MS);
       } catch {}
     });
 

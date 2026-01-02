@@ -21,6 +21,7 @@ import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import { lineString, point } from "@turf/helpers";
 import nearestPointOnLine from "@turf/nearest-point-on-line";
+import { BACKEND_URL } from "../config/backend-simple.js";
 
 // Prefer token from environment (injected by Webpack DefinePlugin)
 const MAPBOX_TOKEN = process.env.MAPBOX_TOKEN || "";
@@ -38,8 +39,17 @@ const isValid = (loc) =>
   Math.abs(loc.lat) > 0.0001 &&
   Math.abs(loc.lng) > 0.0001;
 
+const haversineMeters = (lat1, lon1, lat2, lon2) => {
+  const R = 6371000;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+};
+
 /* -------------------- component -------------------- */
-const MapboxMap = ({ currentLocation, endLocation, follow = true }) => {
+const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true, busNumber, onNextStop }) => {
   const mapRef = useRef(null);
   const mapContainerRef = useRef(null);
 
@@ -49,9 +59,80 @@ const MapboxMap = ({ currentLocation, endLocation, follow = true }) => {
 
   const vehicleMarkerRef = useRef(null);
   const destinationMarkerRef = useRef(null);
+  const startMarkerRef = useRef(null);
   const prevPosRef = useRef(null);
 
   const [mapReady, setMapReady] = useState(false);
+  const midpointsRef = useRef([]); // ordered active midpoints for this bus
+  const orientedRef = useRef([]);   // midpoints oriented for current trip direction
+  const directionRef = useRef(null); // null=undecided, true=reverse, false=forward
+  const progressIdxRef = useRef(0);  // monotonically increasing index of passed midpoints
+
+  // Load midpoints for routing when busNumber changes
+  useEffect(() => {
+    (async () => {
+      try {
+        if (!busNumber) { midpointsRef.current = []; return; }
+        const url = `${BACKEND_URL}/api/midpoints/public/${encodeURIComponent(busNumber)}`;
+        const r = await fetch(url, { credentials: 'omit' });
+        const j = await r.json();
+        if (j && j.ok && Array.isArray(j.items)) {
+          midpointsRef.current = j.items
+            .map((m) => ({ lat: Number(m.lat), lng: Number(m.lng), name: m.name || '', radius: Number(m.radius_m) || 150 }))
+            .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
+          orientedRef.current = [...midpointsRef.current];
+          directionRef.current = null; // recalc on first use
+          progressIdxRef.current = 0;  // reset progress
+        } else {
+          midpointsRef.current = [];
+          orientedRef.current = [];
+          directionRef.current = null;
+          progressIdxRef.current = 0;
+        }
+      } catch { midpointsRef.current = []; }
+    })();
+  }, [busNumber]);
+
+  // Decide midpoint travel order based on current and destination
+  const getOrientedMidpoints = (cur, dest) => {
+    const mps = midpointsRef.current || [];
+    if (!mps.length || !isValid(cur) || !isValid(dest)) return [];
+    if (mps.length === 1) return mps;
+    const first = mps[0];
+    const last = mps[mps.length - 1];
+    const dCurFirst = haversineMeters(cur.lat, cur.lng, first.lat, first.lng);
+    const dCurLast = haversineMeters(cur.lat, cur.lng, last.lat, last.lng);
+    const dDestFirst = haversineMeters(dest.lat, dest.lng, first.lat, first.lng);
+    const dDestLast = haversineMeters(dest.lat, dest.lng, last.lat, last.lng);
+    // If current is nearer to 'last' and destination nearer to 'first', reverse
+    if (directionRef.current === null) {
+      directionRef.current = (dCurLast < dCurFirst) && (dDestFirst < dDestLast);
+    }
+    const oriented = directionRef.current ? [...mps].reverse() : [...mps];
+    orientedRef.current = oriented;
+    return oriented;
+  };
+
+  // Return upcoming midpoints, permanently locking passed ones by order
+  const getUpcomingMidpoints = (cur, dest) => {
+    const oriented = getOrientedMidpoints(cur, dest);
+    if (!oriented.length) return [];
+    if (!routeLineRef.current) return oriented;
+
+    let furthestPassed = progressIdxRef.current || 0;
+    for (let i = furthestPassed; i < oriented.length; i += 1) {
+      const p = oriented[i];
+      const d = haversineMeters(cur.lat, cur.lng, p.lat, p.lng);
+      // Once inside radius even once, lock as passed forever
+      if (d < (Number(p.radius) || 150)) {
+        furthestPassed = i + 1;
+      } else {
+        break;
+      }
+    }
+    progressIdxRef.current = furthestPassed;
+    return oriented.slice(furthestPassed);
+  };
 
   /* -------------------- create map ONCE -------------------- */
   useEffect(() => {
@@ -166,7 +247,16 @@ const MapboxMap = ({ currentLocation, endLocation, follow = true }) => {
 
     const loadRoute = async () => {
       try {
-        const url = `https://router.project-osrm.org/route/v1/driving/${currentLocation.lng},${currentLocation.lat};${endLocation.lng},${endLocation.lat}?overview=full&geometries=geojson`;
+        const mps = getUpcomingMidpoints(currentLocation, endLocation);
+        const coordsList = [
+          `${currentLocation.lng},${currentLocation.lat}`,
+          ...mps.map((p) => `${p.lng},${p.lat}`),
+          `${endLocation.lng},${endLocation.lat}`,
+        ];
+        const waypoints = coordsList.join(";");
+        const radiuses = new Array(coordsList.length).fill(150).join(";");
+        console.debug('[Map] ordered midpoints for routing', mps);
+        const url = `https://router.project-osrm.org/route/v1/driving/${waypoints}?overview=full&geometries=geojson&steps=false&annotations=false&continue_straight=true&radiuses=${radiuses}`;
         const res = await fetch(url);
         const data = await res.json();
         console.log("[Map] OSRM response", data);
@@ -228,6 +318,65 @@ const MapboxMap = ({ currentLocation, endLocation, follow = true }) => {
             "line-opacity": 0.95,
           },
         });
+
+        // 📍 Midpoint markers (circles + labels)
+        try {
+          const mpFeatures = (orientedRef.current || []).map((p, i) => ({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
+            properties: { name: p.name || `Stop ${i+1}`, index: i }
+          }));
+          if (!mapRef.current.getSource('midpoints')) {
+            mapRef.current.addSource('midpoints', {
+              type: 'geojson',
+              data: { type: 'FeatureCollection', features: mpFeatures },
+            });
+          } else {
+            mapRef.current.getSource('midpoints').setData({ type: 'FeatureCollection', features: mpFeatures });
+          }
+          if (!mapRef.current.getLayer('midpoints-circles')) {
+            mapRef.current.addLayer({
+              id: 'midpoints-circles',
+              type: 'circle',
+              source: 'midpoints',
+              paint: {
+                'circle-radius': 6,
+                'circle-color': '#e53935',
+                'circle-stroke-width': 2,
+                'circle-stroke-color': '#ffffff',
+              },
+            });
+          }
+          if (!mapRef.current.getLayer('midpoints-labels')) {
+            mapRef.current.addLayer({
+              id: 'midpoints-labels',
+              type: 'symbol',
+              source: 'midpoints',
+              layout: {
+                'text-field': ['get', 'name'],
+                'text-size': 12,
+                'text-offset': [0, 1.2],
+                'text-anchor': 'top',
+                'text-allow-overlap': false,
+              },
+              paint: { 'text-color': '#111', 'text-halo-color': '#fff', 'text-halo-width': 1.2 },
+            });
+          }
+        } catch {}
+
+        // 🟢 start marker (origin)
+        if (isValid(startLocation)) {
+          const startEl = document.createElement("div");
+          startEl.style.cssText =
+            "width:22px;height:22px;border-radius:50%;background:#7b1fa2;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.4)";
+          if (!startMarkerRef.current) {
+            startMarkerRef.current = new mapboxgl.Marker({ element: startEl })
+              .setLngLat([startLocation.lng, startLocation.lat])
+              .addTo(mapRef.current);
+          } else {
+            startMarkerRef.current.setLngLat([startLocation.lng, startLocation.lat]);
+          }
+        }
 
         // 🎯 destination marker
         const destEl = document.createElement("div");
@@ -293,7 +442,15 @@ const MapboxMap = ({ currentLocation, endLocation, follow = true }) => {
       if (now - lastRouteUpdateRef.current < 700) return;
       lastRouteUpdateRef.current = now;
 
-      const url = `https://router.project-osrm.org/route/v1/driving/${cur.lng},${cur.lat};${dest.lng},${dest.lat}?overview=full&geometries=geojson`;
+      const mps = getUpcomingMidpoints(cur, dest);
+      const coordsList = [
+        `${cur.lng},${cur.lat}`,
+        ...mps.map((p) => `${p.lng},${p.lat}`),
+        `${dest.lng},${dest.lat}`,
+      ];
+      const waypoints = coordsList.join(";");
+      const radiuses = new Array(coordsList.length).fill(150).join(";");
+      const url = `https://router.project-osrm.org/route/v1/driving/${waypoints}?overview=full&geometries=geojson&steps=false&annotations=false&continue_straight=true&radiuses=${radiuses}`;
       const res = await fetch(url);
       const data = await res.json();
       const coords = data?.routes?.[0]?.geometry?.coordinates;
@@ -314,6 +471,18 @@ const MapboxMap = ({ currentLocation, endLocation, follow = true }) => {
           geometry: { type: "LineString", coordinates: forced },
         });
       }
+
+      // Update midpoint features if direction changed
+      try {
+        const mpFeatures = (orientedRef.current || []).map((p, i) => ({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
+          properties: { name: p.name || `Stop ${i+1}`, index: i }
+        }));
+        if (mapRef.current.getSource('midpoints')) {
+          mapRef.current.getSource('midpoints').setData({ type: 'FeatureCollection', features: mpFeatures });
+        }
+      } catch {}
     } catch (e) {
       console.warn("[Map] rerouteFromCurrent failed", e);
     }
@@ -403,6 +572,17 @@ const MapboxMap = ({ currentLocation, endLocation, follow = true }) => {
         mapRef.current.easeTo({ center: target, zoom: DEFAULT_ZOOM, duration: 500 });
       }
     }
+
+    // 🔔 Determine and report next upcoming midpoint name
+    try {
+      const upcoming = getUpcomingMidpoints(currentLocation, endLocation || currentLocation);
+      if (Array.isArray(upcoming) && upcoming.length) {
+        const next = upcoming[0];
+        if (onNextStop) onNextStop(next?.name || '');
+      } else if (onNextStop) {
+        onNextStop(endLocation?.name || '');
+      }
+    } catch {}
   }, [currentLocation, follow, mapReady]);
 
   /* -------------------- render -------------------- */

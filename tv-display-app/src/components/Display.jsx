@@ -721,6 +721,7 @@ const Display = ({ busNumber, depot }) => {
                 currentLocation={effectiveCurrentLocation}
                 stops={[]} // no default stops injected
                 busNumber={selectedBusNumber}
+                onNextStop={(name) => setNextStop(name || '')}
                 follow
               />
             </div>

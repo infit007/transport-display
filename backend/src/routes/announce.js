@@ -1,7 +1,7 @@
 import { Router } from 'express';
 
 // In-memory last announced landmark per bus
-// Stores: busId -> { name, stage }
+// Stores: busId -> { name, stage, ts }
 const lastAnnouncedMap = new Map();
 
 // Build Overpass QL query for landmarks within radius
@@ -148,28 +148,26 @@ export async function detectAndAnnounceLandmark(io, { busId, lat, lng, force = f
         }
 
         const stage = best.distance <= (best.radius || 150) ? 'REACHED' : 'APPROACHING';
+        const nowTs = Date.now();
         const last = lastAnnouncedMap.get(busKey);
         if (!force && last && last.name === best.name && last.stage === stage) {
-          return { ok: true, announced: false, name: best.name, stage };
+          if (stage === 'REACHED') {
+            // Allow continuous repeats for REACHED every ~2.5s
+            if ((nowTs - (last.ts || 0)) < 2500) {
+              return { ok: true, announced: false, name: best.name, stage };
+            }
+            // proceed
+          } else {
+            // APPROACHING: suppress duplicates
+            return { ok: true, announced: false, name: best.name, stage };
+          }
         }
 
-        lastAnnouncedMap.set(busKey, { name: best.name, stage });
+        lastAnnouncedMap.set(busKey, { name: best.name, stage, ts: nowTs });
         const payload = { type: 'LANDMARK', name: best.name, busId: busKey, stage };
         try {
-          if (stage === 'REACHED') {
-            // Emit 3 times at 3s intervals for clear audible announcement
-            for (let i = 0; i < 3; i += 1) {
-              setTimeout(() => {
-                try {
-                  io.to(`bus:${busKey}`).emit('announce:landmark', { ...payload, repeat: i + 1 });
-                  io.emit('announce:landmark', { ...payload, repeat: i + 1 });
-                } catch {}
-              }, i * 3000);
-            }
-          } else {
-            io.to(`bus:${busKey}`).emit('announce:landmark', payload);
-            io.emit('announce:landmark', payload);
-          }
+          io.to(`bus:${busKey}`).emit('announce:landmark', payload);
+          io.emit('announce:landmark', payload);
         } catch {}
         return { ok: true, announced: true, name: best.name, stage };
       }
@@ -191,6 +189,25 @@ export default function createAnnounceRoutes(io, supabase = null) {
       return res.json(result);
     } catch (e) {
       return res.status(500).json({ error: 'Internal error' });
+    }
+  });
+
+  // Public: get active midpoints for a bus (ordered)
+  router.get('/midpoints/public/:busNumber', async (req, res) => {
+    try {
+      if (!supabase) return res.status(500).json({ ok: false, error: 'supabase_unavailable' });
+      const busNumber = String(req.params.busNumber || '').trim();
+      if (!busNumber) return res.status(400).json({ ok: false, error: 'missing_bus_number' });
+      const { data, error } = await supabase
+        .from('route_midpoints')
+        .select('id,name,lat,lng,radius_m,order_index,active')
+        .eq('bus_number', busNumber)
+        .eq('active', true)
+        .order('order_index', { ascending: true });
+      if (error) return res.status(500).json({ ok: false, error: error.message });
+      return res.json({ ok: true, items: data || [] });
+    } catch (e) {
+      return res.status(500).json({ ok: false, error: 'unexpected' });
     }
   });
 
