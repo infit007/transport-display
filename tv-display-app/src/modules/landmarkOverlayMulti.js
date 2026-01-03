@@ -11,6 +11,8 @@ function toHindi(input) {
       ['clock tower', 'घंटाघर'],
       ['ghantaghar', 'घंटाघर'],
       ['ghanta ghar', 'घंटाघर'],
+      ['pacific mall', 'पैसिफिक मॉल'],
+      ['pacific mall dehradun', 'पैसिफिक मॉल देहरादून'],
       ['isbt dehradun', 'आईएसबीटी देहरादून'],
       ['dehradun', 'देहरादून'],
       ['rishikesh', 'ऋषिकेश'],
@@ -27,7 +29,7 @@ function toHindi(input) {
       ['ai', 'ऐ'], ['au', 'औ']
     ];
     const cmap = { a:'अ',b:'ब',c:'क',d:'द',e:'ए',f:'फ',g:'ग',h:'ह',i:'इ',j:'ज',k:'क',l:'ल',m:'म',n:'न',o:'ओ',p:'प',q:'क',r:'र',s:'स',t:'त',u:'उ',v:'व',w:'व',x:'क्स',y:'य',z:'ज़' };
-    const dict = { railway:'रेलवे', station:'स्टेशन', bus:'बस', stand:'स्टैंड', stop:'स्टॉप', terminal:'टर्मिनल', airport:'हवाई अड्डा', hospital:'अस्पताल', college:'कॉलेज', university:'विश्वविद्यालय', market:'बाज़ार', mall:'मॉल', road:'रोड', chowk:'चौक', bridge:'पुल', temple:'मंदिर', isbt:'आईएसबीटी', tower:'टावर' };
+    const dict = { railway:'रेलवे', station:'स्टेशन', bus:'बस', stand:'स्टैंड', stop:'स्टॉप', terminal:'टर्मिनल', airport:'हवाई अड्डा', hospital:'अस्पताल', college:'कॉलेज', university:'विश्वविद्यालय', market:'बाज़ार', mall:'मॉल', road:'रोड', chowk:'चौक', bridge:'पुल', temple:'मंदिर', isbt:'आईएसबीटी', tower:'टावर', pacific:'पैसिफिक' };
     const raw = String(input).trim();
     const lowAll = raw.toLowerCase();
     if (phraseDict.has(lowAll)) return phraseDict.get(lowAll);
@@ -111,16 +113,16 @@ export default function initLandmarkOverlayMulti() {
           lastApproachShownAt.set(name, now);
         }
 
-        const nameHi = toHindi(name);
+        const place = name;
         // Regional templates (Garhwali, Kumaoni) provided by user
         const lineGhw = stage === 'REACHED'
-          ? `हम ${nameHi} मा पौंछिगे`
-          : `हम ${nameHi} पोचण वाळ छ`;
+          ? `हम ${place} मा पौंछिगे`
+          : `हम ${place} पोचण वाळ छ`;
         const lineKmn = stage === 'REACHED'
-          ? `हम ${nameHi} पहुँचि गयाँ।`
-          : `हम ${nameHi} पास पहुँचि लागि रयाँ।`;
-        const lineHi = stage === 'REACHED' ? `हम ${nameHi} पहुँच गए हैं` : `हम ${nameHi} के पास पहुँच रहे हैं`;
-        const lineEn = stage === 'REACHED' ? `We have reached ${name}` : `We are approaching ${name}`;
+          ? `हम ${place} पहुँचि गयाँ।`
+          : `हम ${place} पास पहुँचि लागि रयाँ।`;
+        const lineHi = stage === 'REACHED' ? `हम ${place} पहुँच गए हैं` : `हम ${place} के पास पहुँच रहे हैं`;
+        const lineEn = stage === 'REACHED' ? `We have reached ${place}` : `We are approaching ${place}`;
 
         // Respect current show/gap windows to avoid flicker or premature hides
         const now = Date.now();

@@ -15,6 +15,22 @@ const bearingDeg = (lat1, lng1, lat2, lng2) => {
     return 0;
   }
 };
+
+// Validate helpers for coordinates
+const isFiniteNum = (v) => typeof v === 'number' && Number.isFinite(v);
+const isLngLatPair = (c) => Array.isArray(c) && c.length >= 2 && isFiniteNum(Number(c[0])) && isFiniteNum(Number(c[1]));
+const cleanCoords = (coords) => {
+  try {
+    if (!Array.isArray(coords)) return [];
+    const out = [];
+    for (const c of coords) {
+      if (isLngLatPair(c)) {
+        out.push([Number(c[0]), Number(c[1])]);
+      }
+    }
+    return out;
+  } catch { return []; }
+};
 // MapboxMap.jsx
 import React, { useEffect, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
@@ -263,7 +279,7 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
         const res = await fetch(url);
         const data = await res.json();
         console.log("[Map] OSRM response", data);
-        const coords = data?.routes?.[0]?.geometry?.coordinates;
+        const coords = cleanCoords(data?.routes?.[0]?.geometry?.coordinates);
         try { console.log("[Map] route coords (raw)", coords); } catch {}
         try { if (Array.isArray(coords)) console.table(coords); } catch {}
         try {
@@ -457,11 +473,12 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
       const url = `https://router.project-osrm.org/route/v1/driving/${waypoints}?overview=full&geometries=geojson&steps=false&annotations=false&continue_straight=true&radiuses=${radiuses}`;
       const res = await fetch(url);
       const data = await res.json();
-      const coords = data?.routes?.[0]?.geometry?.coordinates;
+      const coords = cleanCoords(data?.routes?.[0]?.geometry?.coordinates);
       if (!Array.isArray(coords) || coords.length < 2) return;
 
       // Force the route to begin exactly at the current marker
-      const forced = [[cur.lng, cur.lat], ...coords.slice(1)];
+      const forced = cleanCoords([[cur.lng, cur.lat], ...coords.slice(1)]);
+      if (forced.length < 2) return;
       routeLineRef.current = lineString(forced);
 
       if (!mapRef.current.getSource("route")) {
@@ -494,15 +511,23 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
 
   /* -------------------- snap to route -------------------- */
   const snapToRoute = (lat, lng) => {
-    if (!routeLineRef.current) return [lng, lat];
-
-    const snapped = nearestPointOnLine(
-      routeLineRef.current,
-      point([lng, lat]),
-      { units: "kilometers" }
-    );
-
-    return snapped.geometry.coordinates;
+    const lngNum = Number(lng);
+    const latNum = Number(lat);
+    if (!isFiniteNum(lngNum) || !isFiniteNum(latNum)) return [lng, lat];
+    if (!routeLineRef.current || !isLngLatPair((routeLineRef.current?.geometry?.coordinates||[])[0])) {
+      return [lngNum, latNum];
+    }
+    try {
+      const snapped = nearestPointOnLine(
+        routeLineRef.current,
+        point([lngNum, latNum]),
+        { units: "kilometers" }
+      );
+      const c = snapped?.geometry?.coordinates;
+      return isLngLatPair(c) ? [Number(c[0]), Number(c[1])] : [lngNum, latNum];
+    } catch {
+      return [lngNum, latNum];
+    }
   };
 
   /* -------------------- live GPS updates -------------------- */

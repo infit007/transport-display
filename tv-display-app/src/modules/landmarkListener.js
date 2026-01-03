@@ -100,12 +100,15 @@ function getTransliterator() {
     railway: 'रेलवे', station: 'स्टेशन', bus: 'बस', stand: 'स्टैंड', stop: 'स्टॉप',
     terminal: 'टर्मिनल', airport: 'हवाई अड्डा', hospital: 'अस्पताल', college: 'कॉलेज',
     university: 'विश्वविद्यालय', market: 'बाज़ार', mall: 'मॉल', road: 'रोड',
-    chowk: 'चौक', bridge: 'पुल', temple: 'मंदिर', isbt: 'आईएसबीटी', tower: 'टावर'
+    chowk: 'चौक', bridge: 'पुल', temple: 'मंदिर', isbt: 'आईएसबीटी', tower: 'टावर',
+    pacific: 'पैसिफिक'
   };
   const phraseDict = new Map([
     ['clock tower', 'घंटाघर'],
     ['ghantaghar', 'घंटाघर'],
     ['ghanta ghar', 'घंटाघर'],
+    ['pacific mall', 'पैसिफिक मॉल'],
+    ['pacific mall dehradun', 'पैसिफिक मॉल देहरादून'],
     ['isbt dehradun', 'आईएसबीटी देहरादून'],
     ['dehradun', 'देहरादून'],
     ['rishikesh', 'ऋषिकेश'],
@@ -192,17 +195,16 @@ function pump() {
 
 // Build 4-language TTS texts from a name/stage
 function buildTexts(name, stage) {
-  const { toHindi } = getTransliterator();
-  const nameHi = toHindi(name);
+  const place = name;
   const textGhw = stage === 'REACHED'
-    ? `हम ${nameHi} मा पौंछिगे`
-    : `हम ${nameHi} पोचण वाळ छ`;
+    ? `हम ${place} मा पौंछिगे`
+    : `हम ${place} पोचण वाळ छ`;
   const textHI = stage === 'REACHED'
-    ? `Hum ${nameHi} pahunch gaye hain`
-    : `Hum ${nameHi} ke paas pahunch rahe hain`;
+    ? `Hum ${place} pahunch gaye hain`
+    : `Hum ${place} ke paas pahunch rahe hain`;
   const textEN = stage === 'REACHED'
-    ? `We have reached ${name}`
-    : `We are approaching ${name}`;
+    ? `We have reached ${place}`
+    : `We are approaching ${place}`;
   return [
     { text: textGhw, lang: 'hi-IN' },
     { text: textHI, lang: 'hi-IN' },
