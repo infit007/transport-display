@@ -68,6 +68,7 @@ const haversineMeters = (lat1, lon1, lat2, lon2) => {
 const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true, busNumber, onNextStop, onFinalDestinationChange }) => {
   const mapRef = useRef(null);
   const mapContainerRef = useRef(null);
+  const suppressFollowUntilRef = useRef(0);
 
   const routeLineRef = useRef(null);
   const routeLoadedRef = useRef(false);
@@ -189,6 +190,13 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
         setMapReady(true);
         try { mapRef.current.resize(); } catch {}
       });
+      const suppress = () => { suppressFollowUntilRef.current = Date.now() + 15000; };
+      mapRef.current.on('dragstart', suppress);
+      mapRef.current.on('zoomstart', suppress);
+      mapRef.current.on('rotatestart', suppress);
+      mapRef.current.on('pitchstart', suppress);
+      mapRef.current.on('touchstart', suppress);
+      mapRef.current.on('wheel', suppress);
       mapRef.current.on("moveend", () => {
         try {
           const center = mapRef.current.getCenter();
@@ -236,10 +244,16 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
     };
     window.addEventListener("resize", onResize);
     window.addEventListener("orientationchange", onResize);
+    let ro;
+    try {
+      ro = new ResizeObserver(() => onResize());
+      if (mapContainerRef.current) ro.observe(mapContainerRef.current);
+    } catch {}
     return () => {
       window.removeEventListener("resize", onResize);
       window.removeEventListener("orientationchange", onResize);
       if (raf) cancelAnimationFrame(raf);
+      try { ro && ro.disconnect(); } catch {}
     };
   }, [mapReady]);
 
@@ -597,7 +611,7 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
     } catch {}
 
     // 🎥 Follow camera without horizontal sweep
-    if (follow) {
+    if (follow && Date.now() >= (suppressFollowUntilRef.current || 0)) {
       try {
         const curCenter = mapRef.current.getCenter();
         const dx = Math.abs(curCenter.lng - target[0]);
