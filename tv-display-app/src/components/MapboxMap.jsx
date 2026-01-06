@@ -85,6 +85,7 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
   const directionRef = useRef(null); // null=undecided, true=reverse, false=forward
   const progressIdxRef = useRef(0);  // monotonically increasing index of passed midpoints
   const reverseRef = useRef(false);   // false: start->end, true: end->start
+  const routeStartedRef = useRef(false); // becomes true once bus leaves its starting terminal
 
   // Load midpoints for routing when busNumber changes
   useEffect(() => {
@@ -98,13 +99,13 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
           midpointsRef.current = j.items
             .map((m) => ({ lat: Number(m.lat), lng: Number(m.lng), name: m.name || '', radius: Number(m.radius_m) || 150 }))
             .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
-          orientedRef.current = [...midpointsRef.current];
-          directionRef.current = null; // recalc on first use
-          progressIdxRef.current = 0;  // reset progress
+          orientedRef.current = reverseRef.current ? [...midpointsRef.current].reverse() : [...midpointsRef.current];
+          directionRef.current = Boolean(reverseRef.current);
+          progressIdxRef.current = 0;
         } else {
           midpointsRef.current = [];
           orientedRef.current = [];
-          directionRef.current = null;
+          directionRef.current = Boolean(reverseRef.current);
           progressIdxRef.current = 0;
         }
       } catch { midpointsRef.current = []; }
@@ -318,45 +319,50 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
 
     const loadRoute = async () => {
       try {
+        // Use configured route: start -> midpoints (ordered) -> end
         const mpsBase = midpointsRef.current || [];
-        const nearMeters = 300;
-        const atEnd = isValid(currentLocation)
-          ? haversineMeters(currentLocation.lat, currentLocation.lng, endLocation.lat, endLocation.lng) <= nearMeters
-          : false;
+        let fStart = startLocation;
+        let fEnd = endLocation;
+        let mpsOriented = [...mpsBase];
 
-        if (atEnd) {
-          reverseRef.current = true;
-          orientedRef.current = [...mpsBase].reverse();
-          directionRef.current = true; // reverse
-          progressIdxRef.current = 0;
-          console.debug('[Map] starting near end -> initializing in reverse direction');
-          try { if (typeof onFinalDestinationChange === 'function') onFinalDestinationChange(startLocation?.name || ''); } catch {}
-          try {
-            const upcoming = orientedRef.current || [];
-            if (onNextStop) {
-              if (upcoming.length) onNextStop(upcoming[0]?.name || '');
-              else onNextStop(startLocation?.name || '');
-            }
-          } catch {}
-          const ok = await buildRoute(endLocation, startLocation, orientedRef.current);
-          if (!ok) return;
+        const nearMeters = 200;
+        if (isValid(currentLocation)) {
+          const dToStart = isValid(startLocation) ? haversineMeters(currentLocation.lat, currentLocation.lng, startLocation.lat, startLocation.lng) : Infinity;
+          const dToEnd = isValid(endLocation) ? haversineMeters(currentLocation.lat, currentLocation.lng, endLocation.lat, endLocation.lng) : Infinity;
+          if (dToEnd <= nearMeters && dToEnd < dToStart) {
+            reverseRef.current = true;
+            directionRef.current = true;
+            mpsOriented = [...mpsBase].reverse();
+            fStart = endLocation;
+            fEnd = startLocation;
+          } else {
+            reverseRef.current = false;
+            directionRef.current = false;
+            mpsOriented = [...mpsBase];
+            fStart = startLocation;
+            fEnd = endLocation;
+          }
         } else {
-          // Use configured route: start -> midpoints (ordered) -> end
-          orientedRef.current = [...mpsBase];
-          directionRef.current = false; // forward
-          console.debug('[Map] ordered midpoints for routing', orientedRef.current);
-          try { if (typeof onFinalDestinationChange === 'function') onFinalDestinationChange(endLocation?.name || ''); } catch {}
-          try {
-            const upcoming = orientedRef.current || [];
-            if (onNextStop) {
-              if (upcoming.length) onNextStop(upcoming[0]?.name || '');
-              else onNextStop(endLocation?.name || '');
-            }
-          } catch {}
-          const ok = await buildRoute(startLocation, endLocation, orientedRef.current);
-          if (!ok) return;
+          reverseRef.current = false;
+          directionRef.current = false;
+          mpsOriented = [...mpsBase];
         }
+
+        orientedRef.current = mpsOriented;
+        progressIdxRef.current = 0;
+        console.debug('[Map] ordered midpoints for routing', orientedRef.current);
+        const ok = await buildRoute(fStart, fEnd, orientedRef.current);
+        if (!ok) return;
         try { console.log("[Map] route ready"); } catch {}
+        try {
+          if (typeof onFinalDestinationChange === 'function') {
+            const destName = reverseRef.current ? (startLocation?.name || '') : (endLocation?.name || '');
+            onFinalDestinationChange(destName);
+          }
+          if (Array.isArray(orientedRef.current) && orientedRef.current.length && typeof onNextStop === 'function') {
+            onNextStop(orientedRef.current[0]?.name || '');
+          }
+        } catch {}
 
         if (!mapRef.current.getSource("route")) {
           mapRef.current.addSource("route", {
@@ -436,11 +442,11 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
         destEl.style.cssText =
           "width:22px;height:22px;border-radius:50%;background:#00c853;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.4)";
 
-        console.log("[Map] creating destination marker", endLocation);
+        console.log("[Map] creating destination marker", fEnd);
         destinationMarkerRef.current = new mapboxgl.Marker({
           element: destEl,
         })
-          .setLngLat([endLocation.lng, endLocation.lat])
+          .setLngLat([fEnd.lng, fEnd.lat])
           .addTo(mapRef.current);
 
         // 🎥 Camera: outside -> inside
@@ -607,10 +613,30 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
 
     // Keep the configured route intact; no rerouting from current position
 
-    // Auto-turnaround: if near terminal, reverse route configuration
+    // Trip start detection: mark started once we leave our starting terminal
+    try {
+      const departMeters = 250;
+      if (!routeStartedRef.current) {
+        if (reverseRef.current && isValid(endLocation)) {
+          const d = haversineMeters(currentLocation.lat, currentLocation.lng, endLocation.lat, endLocation.lng);
+          if (d > departMeters) {
+            routeStartedRef.current = true;
+            try { console.log('[Map] Trip started (reverse leg)'); } catch {}
+          }
+        } else if (!reverseRef.current && isValid(startLocation)) {
+          const d = haversineMeters(currentLocation.lat, currentLocation.lng, startLocation.lat, startLocation.lng);
+          if (d > departMeters) {
+            routeStartedRef.current = true;
+            try { console.log('[Map] Trip started (forward leg)'); } catch {}
+          }
+        }
+      }
+    } catch {}
+
+    // Auto-turnaround: if near terminal, reverse route configuration (only after trip has actually started)
     try {
       const nearMeters = 200; // threshold widened for reliable flip near terminals
-      if (!reverseRef.current && isValid(endLocation)) {
+      if (routeStartedRef.current && !reverseRef.current && isValid(endLocation)) {
         const d = haversineMeters(currentLocation.lat, currentLocation.lng, endLocation.lat, endLocation.lng);
         if (d <= nearMeters) {
           reverseRef.current = true;
@@ -620,10 +646,16 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
           directionRef.current = true;
           progressIdxRef.current = 0;
           buildRoute(endLocation, startLocation, mps).then((ok) => {
-            if (ok && typeof onFinalDestinationChange === 'function') onFinalDestinationChange(startLocation?.name || '');
+            if (ok) {
+              if (typeof onFinalDestinationChange === 'function') onFinalDestinationChange(startLocation?.name || '');
+              if (Array.isArray(orientedRef.current) && orientedRef.current.length && typeof onNextStop === 'function') {
+                onNextStop(orientedRef.current[0]?.name || '');
+              }
+            }
           });
+          routeStartedRef.current = false; // reset for the new leg
         }
-      } else if (reverseRef.current && isValid(startLocation)) {
+      } else if (routeStartedRef.current && reverseRef.current && isValid(startLocation)) {
         const d = haversineMeters(currentLocation.lat, currentLocation.lng, startLocation.lat, startLocation.lng);
         if (d <= nearMeters) {
           reverseRef.current = false;
@@ -632,8 +664,14 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
           directionRef.current = false;
           progressIdxRef.current = 0;
           buildRoute(startLocation, endLocation, mps).then((ok) => {
-            if (ok && typeof onFinalDestinationChange === 'function') onFinalDestinationChange(endLocation?.name || '');
+            if (ok) {
+              if (typeof onFinalDestinationChange === 'function') onFinalDestinationChange(endLocation?.name || '');
+              if (Array.isArray(orientedRef.current) && orientedRef.current.length && typeof onNextStop === 'function') {
+                onNextStop(orientedRef.current[0]?.name || '');
+              }
+            }
           });
+          routeStartedRef.current = false; // reset for the new leg
         }
       }
     } catch {}
@@ -665,15 +703,25 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
 
     // 🔔 Determine and report next upcoming midpoint name
     try {
-      const destForDir = reverseRef.current ? (startLocation || currentLocation) : (endLocation || currentLocation);
-      const upcoming = getUpcomingMidpoints(currentLocation, destForDir);
-      if (Array.isArray(upcoming) && upcoming.length) {
-        const next = upcoming[0];
-        if (onNextStop) onNextStop(next?.name || '');
-      } else if (onNextStop) {
-        // When no midpoints remain, show the terminal appropriate to the current direction
-        const terminalName = reverseRef.current ? (startLocation?.name || '') : (endLocation?.name || '');
-        onNextStop(terminalName);
+      const hasMidpoints = Array.isArray(midpointsRef.current) && midpointsRef.current.length > 0;
+      if (!hasMidpoints) {
+        // Midpoints not loaded yet; avoid emitting a misleading terminal as next stop
+      } else if (!routeStartedRef.current) {
+        // Before departure, prefer the first midpoint from the intended direction
+        const oriented = reverseRef.current ? [...midpointsRef.current].reverse() : [...midpointsRef.current];
+        const first = oriented[0];
+        if (onNextStop) onNextStop(first?.name || '');
+      } else {
+        const destForDir = reverseRef.current ? (startLocation || currentLocation) : (endLocation || currentLocation);
+        const upcoming = getUpcomingMidpoints(currentLocation, destForDir);
+        if (Array.isArray(upcoming) && upcoming.length) {
+          const next = upcoming[0];
+          if (onNextStop) onNextStop(next?.name || '');
+        } else if (onNextStop) {
+          // When no midpoints remain, show the terminal appropriate to the current direction
+          const terminalName = reverseRef.current ? (startLocation?.name || '') : (endLocation?.name || '');
+          onNextStop(terminalName);
+        }
       }
     } catch {}
   }, [currentLocation, follow, mapReady]);
