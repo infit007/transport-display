@@ -318,17 +318,45 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
 
     const loadRoute = async () => {
       try {
-        // Use configured route: start -> midpoints (ordered) -> end
         const mpsBase = midpointsRef.current || [];
-        orientedRef.current = [...mpsBase];
-        directionRef.current = false; // forward
-        console.debug('[Map] ordered midpoints for routing', orientedRef.current);
-        const ok = await buildRoute(startLocation, endLocation, orientedRef.current);
-        if (!ok) return;
+        const nearMeters = 300;
+        const atEnd = isValid(currentLocation)
+          ? haversineMeters(currentLocation.lat, currentLocation.lng, endLocation.lat, endLocation.lng) <= nearMeters
+          : false;
+
+        if (atEnd) {
+          reverseRef.current = true;
+          orientedRef.current = [...mpsBase].reverse();
+          directionRef.current = true; // reverse
+          progressIdxRef.current = 0;
+          console.debug('[Map] starting near end -> initializing in reverse direction');
+          try { if (typeof onFinalDestinationChange === 'function') onFinalDestinationChange(startLocation?.name || ''); } catch {}
+          try {
+            const upcoming = orientedRef.current || [];
+            if (onNextStop) {
+              if (upcoming.length) onNextStop(upcoming[0]?.name || '');
+              else onNextStop(startLocation?.name || '');
+            }
+          } catch {}
+          const ok = await buildRoute(endLocation, startLocation, orientedRef.current);
+          if (!ok) return;
+        } else {
+          // Use configured route: start -> midpoints (ordered) -> end
+          orientedRef.current = [...mpsBase];
+          directionRef.current = false; // forward
+          console.debug('[Map] ordered midpoints for routing', orientedRef.current);
+          try { if (typeof onFinalDestinationChange === 'function') onFinalDestinationChange(endLocation?.name || ''); } catch {}
+          try {
+            const upcoming = orientedRef.current || [];
+            if (onNextStop) {
+              if (upcoming.length) onNextStop(upcoming[0]?.name || '');
+              else onNextStop(endLocation?.name || '');
+            }
+          } catch {}
+          const ok = await buildRoute(startLocation, endLocation, orientedRef.current);
+          if (!ok) return;
+        }
         try { console.log("[Map] route ready"); } catch {}
-        try {
-          if (typeof onFinalDestinationChange === 'function') onFinalDestinationChange(endLocation?.name || '');
-        } catch {}
 
         if (!mapRef.current.getSource("route")) {
           mapRef.current.addSource("route", {
