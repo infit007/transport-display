@@ -65,7 +65,7 @@ const haversineMeters = (lat1, lon1, lat2, lon2) => {
 };
 
 /* -------------------- component -------------------- */
-const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true, busNumber, onNextStop }) => {
+const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true, busNumber, onNextStop, onFinalDestinationChange }) => {
   const mapRef = useRef(null);
   const mapContainerRef = useRef(null);
 
@@ -83,6 +83,7 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
   const orientedRef = useRef([]);   // midpoints oriented for current trip direction
   const directionRef = useRef(null); // null=undecided, true=reverse, false=forward
   const progressIdxRef = useRef(0);  // monotonically increasing index of passed midpoints
+  const reverseRef = useRef(false);   // false: start->end, true: end->start
 
   // Load midpoints for routing when busNumber changes
   useEffect(() => {
@@ -258,85 +259,75 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
     }
   }, [mapReady, currentLocation]);
 
+  async function buildRoute(forwardStart, forwardEnd, mps) {
+    try {
+      const coordsList = [
+        `${forwardStart.lng},${forwardStart.lat}`,
+        ...mps.map((p) => `${p.lng},${p.lat}`),
+        `${forwardEnd.lng},${forwardEnd.lat}`,
+      ];
+      const waypoints = coordsList.join(";");
+      const radiuses = new Array(coordsList.length).fill(150).join(";");
+      const url = `https://router.project-osrm.org/route/v1/driving/${waypoints}?overview=full&geometries=geojson&steps=false&annotations=false&continue_straight=true&radiuses=${radiuses}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      const coords = cleanCoords(data?.routes?.[0]?.geometry?.coordinates);
+      if (!coords || coords.length < 2) return false;
+
+      routeLoadedRef.current = true;
+      routeLineRef.current = lineString(coords);
+
+      if (!mapRef.current.getSource("route")) {
+        mapRef.current.addSource("route", {
+          type: "geojson",
+          data: { type: "Feature", geometry: { type: "LineString", coordinates: coords } },
+        });
+      } else {
+        mapRef.current.getSource("route").setData({
+          type: "Feature",
+          geometry: { type: "LineString", coordinates: coords },
+        });
+      }
+
+      // Casing + main line layers (create if missing)
+      if (!mapRef.current.getLayer("route-casing")) mapRef.current.addLayer({ id: "route-casing", type: "line", source: "route", paint: { "line-color": "#0a0a0a", "line-width": 9, "line-opacity": 0.6 } });
+      if (!mapRef.current.getLayer("route-line")) mapRef.current.addLayer({ id: "route-line", type: "line", source: "route", paint: { "line-color": "#00e0ff", "line-width": 5, "line-opacity": 0.95 } });
+      return true;
+    } catch { return false; }
+  }
+
   /* -------------------- load route (initial) -------------------- */
   useEffect(() => {
     if (!mapReady) return;
-    if (!isValid(currentLocation) || !isValid(endLocation)) return;
+    if (!isValid(startLocation) || !isValid(endLocation)) return;
     if (routeLoadedRef.current) return;
 
     const loadRoute = async () => {
       try {
-        const mps = getUpcomingMidpoints(currentLocation, endLocation);
-        const coordsList = [
-          `${currentLocation.lng},${currentLocation.lat}`,
-          ...mps.map((p) => `${p.lng},${p.lat}`),
-          `${endLocation.lng},${endLocation.lat}`,
-        ];
-        const waypoints = coordsList.join(";");
-        const radiuses = new Array(coordsList.length).fill(150).join(";");
-        console.debug('[Map] ordered midpoints for routing', mps);
-        const url = `https://router.project-osrm.org/route/v1/driving/${waypoints}?overview=full&geometries=geojson&steps=false&annotations=false&continue_straight=true&radiuses=${radiuses}`;
-        const res = await fetch(url);
-        const data = await res.json();
-        console.log("[Map] OSRM response", data);
-        const coords = cleanCoords(data?.routes?.[0]?.geometry?.coordinates);
-        try { console.log("[Map] route coords (raw)", coords); } catch {}
-        try { if (Array.isArray(coords)) console.table(coords); } catch {}
+        // Use configured route: start -> midpoints (ordered) -> end
+        const mpsBase = midpointsRef.current || [];
+        orientedRef.current = [...mpsBase];
+        directionRef.current = false; // forward
+        console.debug('[Map] ordered midpoints for routing', orientedRef.current);
+        const ok = await buildRoute(startLocation, endLocation, orientedRef.current);
+        if (!ok) return;
+        try { console.log("[Map] route ready"); } catch {}
         try {
-          if (Array.isArray(data?.waypoints)) {
-            console.log("[Map] waypoints (raw)", data.waypoints);
-            const wp = data.waypoints.map((w) => ({
-              name: w?.name,
-              lat: w?.location?.[1],
-              lng: w?.location?.[0],
-              distance: w?.distance,
-            }));
-            console.table(wp);
-          }
+          if (typeof onFinalDestinationChange === 'function') onFinalDestinationChange(endLocation?.name || '');
         } catch {}
-        if (!coords || coords.length < 2) return;
-
-        routeLoadedRef.current = true;
-        routeLineRef.current = lineString(coords);
 
         if (!mapRef.current.getSource("route")) {
           mapRef.current.addSource("route", {
             type: "geojson",
-            data: {
-              type: "Feature",
-              geometry: { type: "LineString", coordinates: coords },
-            },
+            data: routeLineRef.current,
           });
         } else {
-          // Ensure initial route is visible if source exists already
-          mapRef.current.getSource("route").setData({
-            type: "Feature",
-            geometry: { type: "LineString", coordinates: coords },
-          });
+          mapRef.current.getSource("route").setData(routeLineRef.current);
         }
 
-        // 🛣️ Google Maps style route (casing + main line)
-        if (!mapRef.current.getLayer("route-casing")) mapRef.current.addLayer({
-          id: "route-casing",
-          type: "line",
-          source: "route",
-          paint: {
-            "line-color": "#0a0a0a",
-            "line-width": 9,
-            "line-opacity": 0.6,
-          },
-        });
-
-        if (!mapRef.current.getLayer("route-line")) mapRef.current.addLayer({
-          id: "route-line",
-          type: "line",
-          source: "route",
-          paint: {
-            "line-color": "#00e0ff",
-            "line-width": 5,
-            "line-opacity": 0.95,
-          },
-        });
+        // 🛣️ ensure layers exist (buildRoute already ensured too)
+        if (!mapRef.current.getLayer("route-casing")) mapRef.current.addLayer({ id: "route-casing", type: "line", source: "route", paint: { "line-color": "#0a0a0a", "line-width": 9, "line-opacity": 0.6 } });
+        if (!mapRef.current.getLayer("route-line")) mapRef.current.addLayer({ id: "route-line", type: "line", source: "route", paint: { "line-color": "#00e0ff", "line-width": 5, "line-opacity": 0.95 } });
 
         // 📍 Midpoint markers (circles + labels)
         try {
@@ -429,7 +420,7 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
             essential: true,
           });
 
-          // After showing the full route, fly into the current position
+          // After showing the full route, fly into the current position (if available)
           setTimeout(() => {
             try {
               if (!isValid(currentLocation)) return;
@@ -451,7 +442,7 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
     };
 
     loadRoute();
-  }, [mapReady, currentLocation, endLocation]);
+  }, [mapReady, startLocation, endLocation]);
 
   /* -------------------- reroute ALWAYS from current -------------------- */
   const rerouteFromCurrent = async (cur, dest) => {
@@ -572,10 +563,38 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
       prevPosRef.current = { ...currentLocation };
     } catch {}
 
-    // 🧭 Update route on every movement (always reroute)
-    if (isValid(endLocation)) {
-      rerouteFromCurrent(currentLocation, endLocation);
-    }
+    // Keep the configured route intact; no rerouting from current position
+
+    // Auto-turnaround: if near terminal, reverse route configuration
+    try {
+      const nearMeters = 200; // threshold widened for reliable flip near terminals
+      if (!reverseRef.current && isValid(endLocation)) {
+        const d = haversineMeters(currentLocation.lat, currentLocation.lng, endLocation.lat, endLocation.lng);
+        if (d <= nearMeters) {
+          reverseRef.current = true;
+          // reverse midpoints and rebuild from end->start
+          const mps = [...(midpointsRef.current || [])].reverse();
+          orientedRef.current = mps;
+          directionRef.current = true;
+          progressIdxRef.current = 0;
+          buildRoute(endLocation, startLocation, mps).then((ok) => {
+            if (ok && typeof onFinalDestinationChange === 'function') onFinalDestinationChange(startLocation?.name || '');
+          });
+        }
+      } else if (reverseRef.current && isValid(startLocation)) {
+        const d = haversineMeters(currentLocation.lat, currentLocation.lng, startLocation.lat, startLocation.lng);
+        if (d <= nearMeters) {
+          reverseRef.current = false;
+          const mps = [...(midpointsRef.current || [])];
+          orientedRef.current = mps;
+          directionRef.current = false;
+          progressIdxRef.current = 0;
+          buildRoute(startLocation, endLocation, mps).then((ok) => {
+            if (ok && typeof onFinalDestinationChange === 'function') onFinalDestinationChange(endLocation?.name || '');
+          });
+        }
+      }
+    } catch {}
 
     // 🎥 Follow camera without horizontal sweep
     if (follow) {
@@ -604,12 +623,15 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
 
     // 🔔 Determine and report next upcoming midpoint name
     try {
-      const upcoming = getUpcomingMidpoints(currentLocation, endLocation || currentLocation);
+      const destForDir = reverseRef.current ? (startLocation || currentLocation) : (endLocation || currentLocation);
+      const upcoming = getUpcomingMidpoints(currentLocation, destForDir);
       if (Array.isArray(upcoming) && upcoming.length) {
         const next = upcoming[0];
         if (onNextStop) onNextStop(next?.name || '');
       } else if (onNextStop) {
-        onNextStop(endLocation?.name || '');
+        // When no midpoints remain, show the terminal appropriate to the current direction
+        const terminalName = reverseRef.current ? (startLocation?.name || '') : (endLocation?.name || '');
+        onNextStop(terminalName);
       }
     } catch {}
   }, [currentLocation, follow, mapReady]);

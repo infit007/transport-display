@@ -32,6 +32,7 @@ const Display = ({ busNumber, depot }) => {
   const socketRef = useRef(null);
   const videoRef = useRef(null);
   const lastLivePositionRef = useRef(null);
+  const tickerTrackRef = useRef(null);
 
   // Global device GPS (context)
   const { position: devicePosition, error: deviceError, permission, isWatching } = useLocation();
@@ -122,9 +123,14 @@ useEffect(() => {
     .map-section { flex: 1 1 auto !important; min-height: 0 !important; height: auto !important; }
     .stop-section { height: 6vh; padding: 4px 8px; }
   }
- /* Ticker: pin to bottom and ensure full width with clean overflow */
-  .ticker-bar { left: 0; right: 0; width: 100%; box-shadow: 0 -1px 0 rgba(255,255,255,0.08); }
-  .ticker-bar .ticker-content { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 10px; }
+ /* Ticker: pin to bottom and enable seamless marquee for long text */
+  .ticker-bar { left: 0; right: 0; width: 100%; box-shadow: 0 -1px 0 rgba(255,255,255,0.08); overflow: hidden; display: flex; align-items: center; }
+  .ticker-bar .ticker-track { display: inline-flex; white-space: nowrap; gap: 0; padding: 0; will-change: transform; animation: ticker-marquee var(--ticker-duration,30s) linear infinite; }
+  .ticker-bar .ticker-item { white-space: nowrap; padding: 0 32px; display: block; }
+  @keyframes ticker-marquee {
+    0% { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+  }
 
   @media (max-width: 900px) {
     .display-container {
@@ -304,6 +310,46 @@ useEffect(() => {
       console.error("[Display] Device GPS error (context)", deviceError);
     }
   }, [deviceError]);
+
+  // Adapt ticker speed to text length and viewport size
+  useEffect(() => {
+    const el = tickerTrackRef.current;
+    if (!el) return;
+    const bar = el.closest('.ticker-bar');
+    if (!bar) return;
+    const compute = () => {
+      try {
+        // Half of track width is the unique text span (we duplicated it)
+        const trackWidth = el.scrollWidth || 0;
+        const contentWidth = Math.max(1, trackWidth / 2);
+        const containerWidth = bar.clientWidth || 1;
+        // Distance to travel until loop feels seamless
+        const distance = contentWidth + containerWidth;
+        // Speed in px/sec (slightly slower on very large screens)
+        const baseSpeed = window.innerWidth >= 1367 ? 90 : 70; // px/s
+        const seconds = Math.max(10, Math.round((distance / baseSpeed)));
+        if (contentWidth <= containerWidth) {
+          // No need to scroll; show text statically
+          el.style.removeProperty('--ticker-duration');
+          el.style.animation = 'none';
+          el.style.transform = 'translateX(0)';
+        } else {
+          el.style.setProperty('--ticker-duration', `${seconds}s`);
+          // Ensure animation is active
+          el.style.animation = 'ticker-marquee var(--ticker-duration) linear infinite';
+        }
+      } catch {}
+    };
+    compute();
+    const onResize = () => compute();
+    window.addEventListener('resize', onResize);
+    const ro = new (window.ResizeObserver || Function)(() => compute());
+    try { ro.observe(bar); } catch {}
+    return () => {
+      window.removeEventListener('resize', onResize);
+      try { ro.disconnect?.(); } catch {}
+    };
+  }, [ticker]);
 
   useEffect(() => {
     console.log("[Display] GPS watch status:", { permission, isWatching });
@@ -976,6 +1022,7 @@ useEffect(() => {
                 stops={[]} // no default stops injected
                 busNumber={selectedBusNumber}
                 onNextStop={(name) => setNextStop(name || '')}
+                onFinalDestinationChange={(name) => setFinalDestination(name || '')}
                 follow
               />
             </div>
@@ -994,8 +1041,9 @@ useEffect(() => {
       </div>
 
       <div className="ticker-bar">
-        <div className="ticker-content" style={{ minWidth: "100%" }}>
-          {ticker}
+        <div className="ticker-track" ref={tickerTrackRef}>
+          <span className="ticker-item">{ticker}</span>
+          <span className="ticker-item" aria-hidden="true">{ticker}</span>
         </div>
       </div>
     </div>
