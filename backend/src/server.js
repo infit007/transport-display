@@ -73,6 +73,34 @@ app.use('/api/schedules', schedulesRoutes);
 app.use('/api/news', createNewsRoutes(io));
 app.use('/api', createAnnounceRoutes(io, supabase));
 
+// Realtime: broadcast news updates from Supabase to all connected TV clients
+try {
+  const channel = supabase
+    .channel('realtime:news_feeds')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'news_feeds' }, (payload) => {
+      try {
+        const row = payload?.new || payload?.old || {};
+        if (row && row.is_active === false) return;
+        const title = row.title || '';
+        const content = row.content || '';
+        const targets = {
+          depots: row.target_depots || [],
+          deviceIds: row.target_device_ids || [],
+        };
+        io.emit('news:broadcast', { title, content, targets });
+      } catch (e) {
+        console.error('Failed to emit realtime news', e);
+      }
+    })
+    .subscribe((status) => {
+      if (status === 'SUBSCRIBED') {
+        console.log('Subscribed to realtime news_feeds');
+      }
+    });
+} catch (e) {
+  console.error('Realtime subscription setup failed for news_feeds', e);
+}
+
 // Socket.io basic channels
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);

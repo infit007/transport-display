@@ -82,10 +82,10 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
   const [mapReady, setMapReady] = useState(false);
   const midpointsRef = useRef([]); // ordered active midpoints for this bus
   const orientedRef = useRef([]);   // midpoints oriented for current trip direction
-  const directionRef = useRef(null); // null=undecided, true=reverse, false=forward
   const progressIdxRef = useRef(0);  // monotonically increasing index of passed midpoints
   const reverseRef = useRef(false);   // false: start->end, true: end->start
   const routeStartedRef = useRef(false); // becomes true once bus leaves its starting terminal
+  const tripDirectionRef = useRef(null); // "forward" | "reverse" | null (SSOT)
 
   // Load midpoints for routing when busNumber changes
   useEffect(() => {
@@ -99,58 +99,27 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
           midpointsRef.current = j.items
             .map((m) => ({ lat: Number(m.lat), lng: Number(m.lng), name: m.name || '', radius: Number(m.radius_m) || 150 }))
             .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
-          orientedRef.current = reverseRef.current ? [...midpointsRef.current].reverse() : [...midpointsRef.current];
-          directionRef.current = Boolean(reverseRef.current);
-          progressIdxRef.current = 0;
+          orientedRef.current = tripDirectionRef.current === "reverse"
+            ? [...midpointsRef.current].reverse()
+            : [...midpointsRef.current];
         } else {
           midpointsRef.current = [];
           orientedRef.current = [];
-          directionRef.current = Boolean(reverseRef.current);
-          progressIdxRef.current = 0;
+        }
+        // Initialize tripDirectionRef once if still null
+        if (!tripDirectionRef.current && isValid(currentLocation) && isValid(startLocation) && isValid(endLocation)) {
+          const dStart = haversineMeters(currentLocation.lat, currentLocation.lng, startLocation.lat, startLocation.lng);
+          const dEnd = haversineMeters(currentLocation.lat, currentLocation.lng, endLocation.lat, endLocation.lng);
+          tripDirectionRef.current = dStart < dEnd ? "forward" : "reverse";
         }
       } catch { midpointsRef.current = []; }
     })();
   }, [busNumber]);
 
-  // Decide midpoint travel order based on current and destination
-  const getOrientedMidpoints = (cur, dest) => {
+  // Helper: get oriented midpoints based on SSOT tripDirectionRef
+  const getOrientedMidpoints = () => {
     const mps = midpointsRef.current || [];
-    if (!mps.length || !isValid(cur) || !isValid(dest)) return [];
-    if (mps.length === 1) return mps;
-    const first = mps[0];
-    const last = mps[mps.length - 1];
-    const dCurFirst = haversineMeters(cur.lat, cur.lng, first.lat, first.lng);
-    const dCurLast = haversineMeters(cur.lat, cur.lng, last.lat, last.lng);
-    const dDestFirst = haversineMeters(dest.lat, dest.lng, first.lat, first.lng);
-    const dDestLast = haversineMeters(dest.lat, dest.lng, last.lat, last.lng);
-    // If current is nearer to 'last' and destination nearer to 'first', reverse
-    if (directionRef.current === null) {
-      directionRef.current = (dCurLast < dCurFirst) && (dDestFirst < dDestLast);
-    }
-    const oriented = directionRef.current ? [...mps].reverse() : [...mps];
-    orientedRef.current = oriented;
-    return oriented;
-  };
-
-  // Return upcoming midpoints, permanently locking passed ones by order
-  const getUpcomingMidpoints = (cur, dest) => {
-    const oriented = getOrientedMidpoints(cur, dest);
-    if (!oriented.length) return [];
-    if (!routeLineRef.current) return oriented;
-
-    let furthestPassed = progressIdxRef.current || 0;
-    for (let i = furthestPassed; i < oriented.length; i += 1) {
-      const p = oriented[i];
-      const d = haversineMeters(cur.lat, cur.lng, p.lat, p.lng);
-      // Once inside radius even once, lock as passed forever
-      if (d < (Number(p.radius) || 150)) {
-        furthestPassed = i + 1;
-      } else {
-        break;
-      }
-    }
-    progressIdxRef.current = furthestPassed;
-    return oriented.slice(furthestPassed);
+    return tripDirectionRef.current === "reverse" ? [...mps].reverse() : [...mps];
   };
 
   /* -------------------- create map ONCE -------------------- */
@@ -325,27 +294,21 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
         let fEnd = endLocation;
         let mpsOriented = [...mpsBase];
 
-        const nearMeters = 200;
-        if (isValid(currentLocation)) {
-          const dToStart = isValid(startLocation) ? haversineMeters(currentLocation.lat, currentLocation.lng, startLocation.lat, startLocation.lng) : Infinity;
-          const dToEnd = isValid(endLocation) ? haversineMeters(currentLocation.lat, currentLocation.lng, endLocation.lat, endLocation.lng) : Infinity;
-          if (dToEnd <= nearMeters && dToEnd < dToStart) {
-            reverseRef.current = true;
-            directionRef.current = true;
-            mpsOriented = [...mpsBase].reverse();
-            fStart = endLocation;
-            fEnd = startLocation;
-          } else {
-            reverseRef.current = false;
-            directionRef.current = false;
-            mpsOriented = [...mpsBase];
-            fStart = startLocation;
-            fEnd = endLocation;
-          }
+        // Initialize tripDirectionRef once if still null
+        if (!tripDirectionRef.current && isValid(currentLocation) && isValid(startLocation) && isValid(endLocation)) {
+          const dStart = haversineMeters(currentLocation.lat, currentLocation.lng, startLocation.lat, startLocation.lng);
+          const dEnd = haversineMeters(currentLocation.lat, currentLocation.lng, endLocation.lat, endLocation.lng);
+          tripDirectionRef.current = dStart < dEnd ? "forward" : "reverse";
+        }
+
+        if (tripDirectionRef.current === "reverse") {
+          mpsOriented = [...mpsBase].reverse();
+          fStart = endLocation;
+          fEnd = startLocation;
         } else {
-          reverseRef.current = false;
-          directionRef.current = false;
           mpsOriented = [...mpsBase];
+          fStart = startLocation;
+          fEnd = endLocation;
         }
 
         orientedRef.current = mpsOriented;
@@ -356,7 +319,7 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
         try { console.log("[Map] route ready"); } catch {}
         try {
           if (typeof onFinalDestinationChange === 'function') {
-            const destName = reverseRef.current ? (startLocation?.name || '') : (endLocation?.name || '');
+            const destName = tripDirectionRef.current === "reverse" ? (startLocation?.name || '') : (endLocation?.name || '');
             onFinalDestinationChange(destName);
           }
           if (Array.isArray(orientedRef.current) && orientedRef.current.length && typeof onNextStop === 'function') {
@@ -617,17 +580,12 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
     try {
       const departMeters = 250;
       if (!routeStartedRef.current) {
-        if (reverseRef.current && isValid(endLocation)) {
-          const d = haversineMeters(currentLocation.lat, currentLocation.lng, endLocation.lat, endLocation.lng);
+        const startTerminal = tripDirectionRef.current === "reverse" ? endLocation : startLocation;
+        if (isValid(startTerminal)) {
+          const d = haversineMeters(currentLocation.lat, currentLocation.lng, startTerminal.lat, startTerminal.lng);
           if (d > departMeters) {
             routeStartedRef.current = true;
-            try { console.log('[Map] Trip started (reverse leg)'); } catch {}
-          }
-        } else if (!reverseRef.current && isValid(startLocation)) {
-          const d = haversineMeters(currentLocation.lat, currentLocation.lng, startLocation.lat, startLocation.lng);
-          if (d > departMeters) {
-            routeStartedRef.current = true;
-            try { console.log('[Map] Trip started (forward leg)'); } catch {}
+            try { console.log('[Map] Trip started'); } catch {}
           }
         }
       }
@@ -635,92 +593,51 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
 
     // Auto-turnaround: if near terminal, reverse route configuration (only after trip has actually started)
     try {
-      const nearMeters = 200; // threshold widened for reliable flip near terminals
-      if (routeStartedRef.current && !reverseRef.current && isValid(endLocation)) {
-        const d = haversineMeters(currentLocation.lat, currentLocation.lng, endLocation.lat, endLocation.lng);
-        if (d <= nearMeters) {
-          reverseRef.current = true;
-          // reverse midpoints and rebuild from end->start
-          const mps = [...(midpointsRef.current || [])].reverse();
-          orientedRef.current = mps;
-          directionRef.current = true;
-          progressIdxRef.current = 0;
-          buildRoute(endLocation, startLocation, mps).then((ok) => {
-            if (ok) {
-              if (typeof onFinalDestinationChange === 'function') onFinalDestinationChange(startLocation?.name || '');
-              if (Array.isArray(orientedRef.current) && orientedRef.current.length && typeof onNextStop === 'function') {
-                onNextStop(orientedRef.current[0]?.name || '');
+      const nearMeters = 200;
+      if (routeStartedRef.current) {
+        const currentTerminal = tripDirectionRef.current === "forward" ? endLocation : startLocation;
+        if (isValid(currentTerminal)) {
+          const d = haversineMeters(currentLocation.lat, currentLocation.lng, currentTerminal.lat, currentTerminal.lng);
+          if (d <= nearMeters) {
+            // Flip direction
+            tripDirectionRef.current = tripDirectionRef.current === "forward" ? "reverse" : "forward";
+            const mpsOriented = getOrientedMidpoints();
+            orientedRef.current = mpsOriented;
+            progressIdxRef.current = 0;
+            const fStart = tripDirectionRef.current === "reverse" ? endLocation : startLocation;
+            const fEnd = tripDirectionRef.current === "reverse" ? startLocation : endLocation;
+            buildRoute(fStart, fEnd, mpsOriented).then((ok) => {
+              if (ok) {
+                if (typeof onFinalDestinationChange === 'function') {
+                  const destName = tripDirectionRef.current === "reverse" ? (startLocation?.name || '') : (endLocation?.name || '');
+                  onFinalDestinationChange(destName);
+                }
+                if (Array.isArray(orientedRef.current) && orientedRef.current.length && typeof onNextStop === 'function') {
+                  onNextStop(orientedRef.current[0]?.name || '');
+                }
               }
-            }
-          });
-          routeStartedRef.current = false; // reset for the new leg
-        }
-      } else if (routeStartedRef.current && reverseRef.current && isValid(startLocation)) {
-        const d = haversineMeters(currentLocation.lat, currentLocation.lng, startLocation.lat, startLocation.lng);
-        if (d <= nearMeters) {
-          reverseRef.current = false;
-          const mps = [...(midpointsRef.current || [])];
-          orientedRef.current = mps;
-          directionRef.current = false;
-          progressIdxRef.current = 0;
-          buildRoute(startLocation, endLocation, mps).then((ok) => {
-            if (ok) {
-              if (typeof onFinalDestinationChange === 'function') onFinalDestinationChange(endLocation?.name || '');
-              if (Array.isArray(orientedRef.current) && orientedRef.current.length && typeof onNextStop === 'function') {
-                onNextStop(orientedRef.current[0]?.name || '');
-              }
-            }
-          });
-          routeStartedRef.current = false; // reset for the new leg
+            });
+            routeStartedRef.current = false; // reset for the new leg
+          }
         }
       }
     } catch {}
 
-    // 🎥 Follow camera without horizontal sweep
-    if (follow && Date.now() >= (suppressFollowUntilRef.current || 0)) {
-      try {
-        const curCenter = mapRef.current.getCenter();
-        const dx = Math.abs(curCenter.lng - target[0]);
-        const dy = Math.abs(curCenter.lat - target[1]);
-        const dist = Math.max(dx, dy);
-        if (dist < 0.0005) {
-          // very small movement: jump to avoid visible sweep
-          mapRef.current.jumpTo({ center: target });
-        } else {
-          mapRef.current.flyTo({
-            center: target,
-            zoom: DEFAULT_ZOOM,
-            speed: 1.0,
-            curve: 1.4,
-            duration: 600,
-            essential: true,
-          });
-        }
-      } catch {
-        mapRef.current.easeTo({ center: target, zoom: DEFAULT_ZOOM, duration: 500 });
-      }
-    }
-
-    // 🔔 Determine and report next upcoming midpoint name
+    // 🔔 Determine and report next upcoming midpoint name (SSOT)
     try {
       const hasMidpoints = Array.isArray(midpointsRef.current) && midpointsRef.current.length > 0;
       if (!hasMidpoints) {
         // Midpoints not loaded yet; avoid emitting a misleading terminal as next stop
-      } else if (!routeStartedRef.current) {
-        // Before departure, prefer the first midpoint from the intended direction
-        const oriented = reverseRef.current ? [...midpointsRef.current].reverse() : [...midpointsRef.current];
-        const first = oriented[0];
-        if (onNextStop) onNextStop(first?.name || '');
       } else {
-        const destForDir = reverseRef.current ? (startLocation || currentLocation) : (endLocation || currentLocation);
-        const upcoming = getUpcomingMidpoints(currentLocation, destForDir);
-        if (Array.isArray(upcoming) && upcoming.length) {
-          const next = upcoming[0];
-          if (onNextStop) onNextStop(next?.name || '');
-        } else if (onNextStop) {
-          // When no midpoints remain, show the terminal appropriate to the current direction
-          const terminalName = reverseRef.current ? (startLocation?.name || '') : (endLocation?.name || '');
-          onNextStop(terminalName);
+        const oriented = getOrientedMidpoints();
+        const remaining = oriented.filter(p =>
+          haversineMeters(currentLocation.lat, currentLocation.lng, p.lat, p.lng) > (Number(p.radius) || 150)
+        );
+        if (remaining.length) {
+          if (onNextStop) onNextStop(remaining[0].name || '');
+        } else {
+          const finalDestinationName = tripDirectionRef.current === "forward" ? (endLocation?.name || '') : (startLocation?.name || '');
+          if (onNextStop) onNextStop(finalDestinationName);
         }
       }
     } catch {}

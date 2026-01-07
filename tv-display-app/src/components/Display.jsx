@@ -33,6 +33,7 @@ const Display = ({ busNumber, depot }) => {
   const videoRef = useRef(null);
   const lastLivePositionRef = useRef(null);
   const tickerTrackRef = useRef(null);
+  const tickerAnimRef = useRef(null);
 
   // Global device GPS (context)
   const { position: devicePosition, error: deviceError, permission, isWatching } = useLocation();
@@ -125,7 +126,7 @@ useEffect(() => {
   }
  /* Ticker: pin to bottom and enable seamless marquee for long text */
   .ticker-bar { left: 0; right: 0; width: 100%; box-shadow: 0 -1px 0 rgba(255,255,255,0.08); overflow: hidden; display: flex; align-items: center; }
-  .ticker-bar .ticker-track { display: inline-flex; white-space: nowrap; gap: 0; padding: 0; will-change: transform; animation: ticker-marquee var(--ticker-duration,30s) linear infinite; }
+  .ticker-bar .ticker-track { display: inline-flex; white-space: nowrap; gap: 0; padding: 0; will-change: transform; width: max-content; flex: 0 0 auto; }
   .ticker-bar .ticker-item { white-space: nowrap; padding: 0 32px; display: block; }
   @keyframes ticker-marquee {
     0% { transform: translateX(0); }
@@ -311,43 +312,56 @@ useEffect(() => {
     }
   }, [deviceError]);
 
-  // Adapt ticker speed to text length and viewport size
+  // Always-moving ticker marquee (broadcast style): continuous crawl even for short text
   useEffect(() => {
     const el = tickerTrackRef.current;
     if (!el) return;
     const bar = el.closest('.ticker-bar');
     if (!bar) return;
-    const compute = () => {
+
+    try { tickerAnimRef.current?.cancel?.(); } catch {}
+
+    const start = () => {
       try {
-        // Half of track width is the unique text span (we duplicated it)
-        const trackWidth = el.scrollWidth || 0;
-        const contentWidth = Math.max(1, trackWidth / 2);
-        const containerWidth = bar.clientWidth || 1;
-        // Distance to travel until loop feels seamless
-        const distance = contentWidth + containerWidth;
-        // Speed in px/sec (slightly slower on very large screens)
-        const baseSpeed = window.innerWidth >= 1367 ? 90 : 70; // px/s
-        const seconds = Math.max(10, Math.round((distance / baseSpeed)));
-        if (contentWidth <= containerWidth) {
-          // No need to scroll; show text statically
-          el.style.removeProperty('--ticker-duration');
-          el.style.animation = 'none';
-          el.style.transform = 'translateX(0)';
-        } else {
-          el.style.setProperty('--ticker-duration', `${seconds}s`);
-          // Ensure animation is active
-          el.style.animation = 'ticker-marquee var(--ticker-duration) linear infinite';
-        }
+        // Cancel any previous animation
+        try { tickerAnimRef.current?.cancel?.(); } catch {}
+
+        const first = el.querySelector('.ticker-item');
+        if (!first) return;
+
+        const textWidth = first.scrollWidth || 0;
+        const boxWidth = bar.clientWidth || 0;
+
+        // Force minimum loop width so short text still scrolls
+        const loopWidth = Math.max(textWidth, boxWidth + 200);
+
+        // Ensure we have enough travel distance inside the track
+        el.style.animation = 'none';
+        el.style.paddingRight = loopWidth + 'px';
+
+        const speed = window.innerWidth >= 1367 ? 80 : 60; // px/sec
+        const duration = Math.max(12, Math.round(loopWidth / speed));
+
+        tickerAnimRef.current = el.animate(
+          [
+            { transform: `translateX(${boxWidth}px)` },
+            { transform: `translateX(-${loopWidth}px)` }
+          ],
+          {
+            duration: duration * 1000,
+            iterations: Infinity,
+            easing: 'linear',
+            fill: 'both',
+          }
+        );
       } catch {}
     };
-    compute();
-    const onResize = () => compute();
-    window.addEventListener('resize', onResize);
-    const ro = new (window.ResizeObserver || Function)(() => compute());
-    try { ro.observe(bar); } catch {}
+
+    start();
+    window.addEventListener('resize', start);
     return () => {
-      window.removeEventListener('resize', onResize);
-      try { ro.disconnect?.(); } catch {}
+      window.removeEventListener('resize', start);
+      try { tickerAnimRef.current?.cancel?.(); } catch {}
     };
   }, [ticker]);
 
