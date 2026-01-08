@@ -21,6 +21,24 @@ router.get('/public', async (_req, res) => {
   return res.json(data);
 });
 
+// Public: last known positions for all buses (for fleet dashboard)
+router.get('/public/positions', async (_req, res) => {
+  const { data, error } = await supabase
+    .from('buses')
+    .select('bus_number, gps_latitude, gps_longitude, last_location_update, status, depo');
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json(
+    (data || []).map((b) => ({
+      bus_number: b.bus_number,
+      lat: b.gps_latitude,
+      lng: b.gps_longitude,
+      last_location_update: b.last_location_update,
+      status: b.status,
+      depot: b.depo,
+    }))
+  );
+});
+
 // Public endpoint to get specific bus by number
 router.get('/public/:busNumber', async (req, res) => {
   try {
@@ -53,6 +71,30 @@ router.get('/public/:busNumber', async (req, res) => {
   }
 });
 
+// Public: last known position for a specific bus
+router.get('/public/:busNumber/position', async (req, res) => {
+  try {
+    const { busNumber } = req.params;
+    const { data, error } = await supabase
+      .from('buses')
+      .select('bus_number, gps_latitude, gps_longitude, last_location_update, status, depo')
+      .eq('bus_number', busNumber)
+      .single();
+    if (error) return res.status(500).json({ error: error.message });
+    if (!data) return res.status(404).json({ error: 'not_found' });
+    return res.json({
+      bus_number: data.bus_number,
+      lat: data.gps_latitude,
+      lng: data.gps_longitude,
+      last_location_update: data.last_location_update,
+      status: data.status,
+      depot: data.depo,
+    });
+  } catch (e) {
+    return res.status(500).json({ error: 'unexpected' });
+  }
+});
+
 router.post('/', authenticate, requireRole('admin', 'operator'), async (req, res) => {
   const { bus_number, route_name, status } = req.body;
   const { error, data } = await supabase.from('buses').insert([{ bus_number, route_name, status }]).select('*').single();
@@ -77,4 +119,45 @@ router.delete('/:id', authenticate, requireRole('admin'), async (req, res) => {
 
 export default router;
 
+
+// --- Extra: Flip endpoints (secured and public) ---
+// These call a SQL function that performs an atomic swap of start/end
+// and reverses midpoints' order_index for the given bus_number.
+// You must first create the function in your database (see assistant message).
+
+// Secured (admin/operator)
+router.post('/flip', authenticate, requireRole('admin', 'operator'), async (req, res) => {
+  try {
+    const { busNumber } = req.body || {};
+    if (!busNumber) return res.status(400).json({ error: 'busNumber_required' });
+    console.log('[flip] secured request', { busNumber, at: new Date().toISOString() });
+    const { data, error } = await supabase.rpc('flip_route_for_bus', { p_bus_number: busNumber });
+    if (error) {
+      console.error('[flip] secured RPC error', error?.message || error);
+      return res.status(500).json({ error: error.message });
+    }
+    console.log('[flip] secured RPC ok', { result: data });
+    return res.json({ ok: true, result: data });
+  } catch (e) {
+    return res.status(500).json({ error: 'unexpected' });
+  }
+});
+
+// Public variant for TV app (use only if you cannot authenticate TV clients)
+router.post('/flip/public', async (req, res) => {
+  try {
+    const { busNumber } = req.body || {};
+    if (!busNumber) return res.status(400).json({ error: 'busNumber_required' });
+    console.log('[flip] public request', { busNumber, at: new Date().toISOString() });
+    const { data, error } = await supabase.rpc('flip_route_for_bus', { p_bus_number: busNumber });
+    if (error) {
+      console.error('[flip] public RPC error', error?.message || error);
+      return res.status(500).json({ error: error.message });
+    }
+    console.log('[flip] public RPC ok', { result: data });
+    return res.json({ ok: true, result: data });
+  } catch (e) {
+    return res.status(500).json({ error: 'unexpected' });
+  }
+});
 

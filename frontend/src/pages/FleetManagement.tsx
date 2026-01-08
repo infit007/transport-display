@@ -120,6 +120,16 @@ const FleetManagement = () => {
   const [eRunningHours, setERunningHours] = useState<12 | 15 | 24>(12);
   const [eBusType, setEBusType] = useState<"volvo" | "ac" | "non_ac">("non_ac");
 
+  // --- Live Positions ---
+  type Position = { lat: number | null; lng: number | null; last: string | null; status?: string | null; depot?: string | null };
+  const [positions, setPositions] = useState<Record<string, Position>>({});
+  const BACKEND_URL = (() => {
+    if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+      return 'http://localhost:4000';
+    }
+    return 'https://transport-display.onrender.com';
+  })();
+
   // Midpoints state for Edit dialog
   type MidpointRow = { id?: string; name: string; latitude: string; longitude: string; radius_m: string; order_index: number };
   const [eMidpoints, setEMidpoints] = useState<MidpointRow[]>([]);
@@ -138,6 +148,29 @@ const FleetManagement = () => {
     return () => {
       supabase.removeChannel(channel);
     };
+  }, []);
+
+  // Poll last known positions for all buses every 5s
+  useEffect(() => {
+    let mounted = true;
+    let timer: any;
+    const fetchPositions = async () => {
+      try {
+        const r = await fetch(`${BACKEND_URL}/api/buses/public/positions`, { credentials: 'omit' });
+        const j = await r.json();
+        if (!mounted || !Array.isArray(j)) return;
+        const map: Record<string, Position> = {};
+        for (const it of j) {
+          map[it.bus_number] = { lat: it.lat ?? null, lng: it.lng ?? null, last: it.last_location_update ?? null, status: it.status ?? null, depot: it.depot ?? null };
+        }
+        setPositions(map);
+      } catch (e) {
+        // swallow; keep previous positions
+      }
+    };
+    fetchPositions();
+    timer = setInterval(fetchPositions, 5000);
+    return () => { mounted = false; clearInterval(timer); };
   }, []);
 
   useEffect(() => {
@@ -688,22 +721,35 @@ const FleetManagement = () => {
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  <div className="flex items-center gap-2 text-sm">
-                    <MapPin className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-muted-foreground">
-                      {bus.gps_latitude && bus.gps_longitude
-                        ? `${bus.gps_latitude.toFixed(4)}, ${bus.gps_longitude.toFixed(4)}`
-                        : "Location not available"}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm">
-                    <Clock className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-muted-foreground">
-                      {bus.last_location_update
-                        ? new Date(bus.last_location_update).toLocaleString()
-                        : "No recent update"}
-                    </span>
-                  </div>
+                  {/* Live position (polled) */}
+                  {(() => {
+                    const p = positions[bus.bus_number];
+                    const hasFix = p && typeof p.lat === 'number' && typeof p.lng === 'number';
+                    const ageStr = p?.last ? new Date(p.last).toLocaleString() : null;
+                    return (
+                      <>
+                        <div className="flex items-center gap-2 text-sm">
+                          <MapPin className="w-4 h-4 text-muted-foreground" />
+                          <span className="text-muted-foreground">
+                            {hasFix ? `${(p!.lat as number).toFixed(4)}, ${(p!.lng as number).toFixed(4)}` : 'Location not available'}
+                          </span>
+                          {hasFix && (
+                            <a
+                              className="ml-auto text-primary underline text-xs"
+                              href={`https://www.google.com/maps?q=${p!.lat},${p!.lng}`}
+                              target="_blank" rel="noreferrer"
+                            >View</a>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 text-sm">
+                          <Clock className="w-4 h-4 text-muted-foreground" />
+                          <span className="text-muted-foreground">
+                            {ageStr ? ageStr : 'No recent update'}
+                          </span>
+                        </div>
+                      </>
+                    );
+                  })()}
                   {bus.driver_name && (
                     <div className="text-sm text-muted-foreground">
                       Driver: {bus.driver_name} ({bus.driver_phone})

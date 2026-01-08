@@ -915,6 +915,19 @@ useEffect(() => {
     socketRef.current.on("device:location", handlePosition);
     socketRef.current.on("vehicle:position", handlePosition);
 
+    // Periodically emit our current location to persist in DB
+    let heartbeat = null;
+    const emitNow = () => {
+      try {
+        if (!socketRef.current || !selectedBusNumber) return;
+        const pos = lastLivePositionRef.current || effectiveCurrentLocation;
+        if (!pos || !Number.isFinite(pos.lat) || !Number.isFinite(pos.lng)) return;
+        socketRef.current.emit('gps:update', { deviceId: selectedBusNumber, lat: pos.lat, lng: pos.lng });
+      } catch {}
+    };
+    // Start 10s heartbeat
+    heartbeat = setInterval(emitNow, 10000);
+
     return () => {
       try {
         socketRef.current?.off("position", handlePosition);
@@ -925,6 +938,7 @@ useEffect(() => {
         socketRef.current?.off("media:refresh", onMediaUpdate);
         socketRef.current?.off("playlist:update", onMediaUpdate);
       } catch {}
+      if (heartbeat) clearInterval(heartbeat);
       if (socketRef.current) {
         socketRef.current.disconnect();
         socketRef.current = null;
@@ -932,6 +946,17 @@ useEffect(() => {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedBusNumber, selectedDepot]);
+
+  // Emit immediately whenever our effective location changes
+  useEffect(() => {
+    try {
+      if (!socketRef.current || !selectedBusNumber) return;
+      if (!effectiveCurrentLocation) return;
+      const { lat, lng } = effectiveCurrentLocation;
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+      socketRef.current.emit('gps:update', { deviceId: selectedBusNumber, lat, lng });
+    } catch {}
+  }, [effectiveCurrentLocation?.lat, effectiveCurrentLocation?.lng, selectedBusNumber]);
 
   // ---- Start up ----
   useEffect(() => {
@@ -1037,6 +1062,11 @@ useEffect(() => {
                 busNumber={selectedBusNumber}
                 onNextStop={(name) => setNextStop(name || '')}
                 onFinalDestinationChange={(name) => setFinalDestination(name || '')}
+                onRouteFlipped={() => {
+                  // Reload bus data after route flip to get updated start/end from database
+                  console.log('[Display] Route flipped, reloading bus data from database');
+                  loadBusData();
+                }}
                 follow
               />
             </div>

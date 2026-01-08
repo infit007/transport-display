@@ -65,7 +65,7 @@ const haversineMeters = (lat1, lon1, lat2, lon2) => {
 };
 
 /* -------------------- component -------------------- */
-const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true, busNumber, onNextStop, onFinalDestinationChange }) => {
+const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true, busNumber, onNextStop, onFinalDestinationChange, onRouteFlipped }) => {
   const mapRef = useRef(null);
   const mapContainerRef = useRef(null);
   const suppressFollowUntilRef = useRef(0);
@@ -73,6 +73,7 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
   const routeLineRef = useRef(null);
   const routeLoadedRef = useRef(false);
   const lastRouteUpdateRef = useRef(0);
+  const lastStartEndHashRef = useRef(null); // Track start/end location changes to detect flips
 
   const vehicleMarkerRef = useRef(null);
   const destinationMarkerRef = useRef(null);
@@ -86,6 +87,14 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
   const reverseRef = useRef(false);   // false: start->end, true: end->start
   const routeStartedRef = useRef(false); // becomes true once bus leaves its starting terminal
   const tripDirectionRef = useRef(null); // "forward" | "reverse" | null (SSOT)
+  const flipInFlightRef = useRef(false); // prevent duplicate DB flips near terminal
+  const lastFlipAtRef = useRef(0);
+  const insideTerminalRef = useRef(false); // geofence state with hysteresis
+  const lastOutsideTsRef = useRef(0);
+  const lastOutsidePosRef = useRef(null);
+  const insideSinceRef = useRef(0);
+  const dwellFlipTimerRef = useRef(null);
+  const arrivalConfirmedRef = useRef(false);
 
   // Load midpoints for routing when busNumber changes
   useEffect(() => {
@@ -280,11 +289,27 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
     } catch { return false; }
   }
 
-  /* -------------------- load route (initial) -------------------- */
+  /* -------------------- load route (initial + after flip) -------------------- */
   useEffect(() => {
     if (!mapReady) return;
     if (!isValid(startLocation) || !isValid(endLocation)) return;
-    if (routeLoadedRef.current) return;
+    
+    // Create hash of start/end locations to detect changes
+    const currentHash = `${startLocation.lat},${startLocation.lng},${endLocation.lat},${endLocation.lng}`;
+    const hashChanged = lastStartEndHashRef.current !== null && lastStartEndHashRef.current !== currentHash;
+    
+    // If route already loaded and locations haven't changed, skip
+    if (routeLoadedRef.current && !hashChanged) return;
+    
+    // If hash changed (after flip), reset route state to force rebuild
+    if (hashChanged) {
+      console.log('[Map] Start/end locations changed, rebuilding route');
+      routeLoadedRef.current = false;
+      // Reset trip direction to null so it gets recalculated based on new terminal positions
+      tripDirectionRef.current = null;
+    }
+    
+    lastStartEndHashRef.current = currentHash;
 
     const loadRoute = async () => {
       try {
@@ -295,10 +320,24 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
         let mpsOriented = [...mpsBase];
 
         // Initialize tripDirectionRef once if still null
+        // When at a terminal, determine direction based on which terminal we're at (DB is source of truth)
         if (!tripDirectionRef.current && isValid(currentLocation) && isValid(startLocation) && isValid(endLocation)) {
           const dStart = haversineMeters(currentLocation.lat, currentLocation.lng, startLocation.lat, startLocation.lng);
           const dEnd = haversineMeters(currentLocation.lat, currentLocation.lng, endLocation.lat, endLocation.lng);
-          tripDirectionRef.current = dStart < dEnd ? "forward" : "reverse";
+          const terminalRadius = 120; // Same as enterRadius in auto-turnaround logic
+          const atStart = dStart <= terminalRadius;
+          const atEnd = dEnd <= terminalRadius;
+          
+          if (atStart && !atEnd) {
+            // At start terminal: direction should be forward (start -> end)
+            tripDirectionRef.current = "forward";
+          } else if (atEnd && !atStart) {
+            // At end terminal: direction should be reverse (end -> start, meaning we're starting from end)
+            tripDirectionRef.current = "reverse";
+          } else {
+            // Not at a terminal: use distance-based heuristic
+            tripDirectionRef.current = dStart < dEnd ? "forward" : "reverse";
+          }
         }
 
         if (tripDirectionRef.current === "reverse") {
@@ -406,6 +445,9 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
           "width:22px;height:22px;border-radius:50%;background:#00c853;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.4)";
 
         console.log("[Map] creating destination marker", fEnd);
+        if (destinationMarkerRef.current) {
+          destinationMarkerRef.current.remove();
+        }
         destinationMarkerRef.current = new mapboxgl.Marker({
           element: destEl,
         })
@@ -414,22 +456,25 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
 
         // 🎥 Camera: outside -> inside
         try {
-          // Compute route bounds
-          let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
-          for (const [lng, lat] of coords) {
-            if (lng < minLng) minLng = lng;
-            if (lat < minLat) minLat = lat;
-            if (lng > maxLng) maxLng = lng;
-            if (lat > maxLat) maxLat = lat;
+          // Compute route bounds from routeLineRef
+          const routeCoords = routeLineRef.current?.geometry?.coordinates || [];
+          if (routeCoords.length > 0) {
+            let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
+            for (const [lng, lat] of routeCoords) {
+              if (lng < minLng) minLng = lng;
+              if (lat < minLat) minLat = lat;
+              if (lng > maxLng) maxLng = lng;
+              if (lat > maxLat) maxLat = lat;
+            }
+            const bounds = [[minLng, minLat], [maxLng, maxLat]];
+            console.log("[Map] fitBounds to route", bounds);
+            mapRef.current.fitBounds(bounds, {
+              padding: { top: 60, right: 60, bottom: 60, left: 60 },
+              duration: 700,
+              linear: true,
+              essential: true,
+            });
           }
-          const bounds = [[minLng, minLat], [maxLng, maxLat]];
-          console.log("[Map] fitBounds to route", bounds);
-          mapRef.current.fitBounds(bounds, {
-            padding: { top: 60, right: 60, bottom: 60, left: 60 },
-            duration: 700,
-            linear: true,
-            essential: true,
-          });
 
           // After showing the full route, fly into the current position (if available)
           setTimeout(() => {
@@ -591,34 +636,93 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
       }
     } catch {}
 
-    // Auto-turnaround: if near terminal, reverse route configuration (only after trip has actually started)
+    // Auto-turnaround: if near terminal, reverse route configuration
     try {
-      const nearMeters = 200;
-      if (routeStartedRef.current) {
-        const currentTerminal = tripDirectionRef.current === "forward" ? endLocation : startLocation;
-        if (isValid(currentTerminal)) {
-          const d = haversineMeters(currentLocation.lat, currentLocation.lng, currentTerminal.lat, currentTerminal.lng);
-          if (d <= nearMeters) {
-            // Flip direction
-            tripDirectionRef.current = tripDirectionRef.current === "forward" ? "reverse" : "forward";
-            const mpsOriented = getOrientedMidpoints();
-            orientedRef.current = mpsOriented;
-            progressIdxRef.current = 0;
-            const fStart = tripDirectionRef.current === "reverse" ? endLocation : startLocation;
-            const fEnd = tripDirectionRef.current === "reverse" ? startLocation : endLocation;
-            buildRoute(fStart, fEnd, mpsOriented).then((ok) => {
+      // Geofence hysteresis: enter <= 120m, exit >= 220m
+      const enterRadius = 120;
+      const exitRadius = 220;
+      {
+        // Compute distances to both terminals
+        const validStart = isValid(startLocation);
+        const validEnd = isValid(endLocation);
+        const dStart = validStart ? haversineMeters(currentLocation.lat, currentLocation.lng, startLocation.lat, startLocation.lng) : Infinity;
+        const dEnd = validEnd ? haversineMeters(currentLocation.lat, currentLocation.lng, endLocation.lat, endLocation.lng) : Infinity;
+        try { console.log('[Map] terminal distances', { dir: tripDirectionRef.current, dStart, dEnd, enterRadius, exitRadius }); } catch {}
+
+        // EXIT when away from both terminals
+        if (dStart >= exitRadius && dEnd >= exitRadius && (insideTerminalRef.current || arrivalConfirmedRef.current)) {
+          insideTerminalRef.current = false;
+          arrivalConfirmedRef.current = false;
+          lastOutsideTsRef.current = Date.now();
+          lastOutsidePosRef.current = { lat: currentLocation.lat, lng: currentLocation.lng };
+          insideSinceRef.current = 0;
+          if (dwellFlipTimerRef.current) { try { clearTimeout(dwellFlipTimerRef.current); } catch {} dwellFlipTimerRef.current = null; }
+        }
+
+        // Determine if we reached the final terminal for current leg.
+        // If direction is unknown (initial refresh), assume DB leg is start->end and treat 'nearEnd' as final to reconcile DB immediately.
+        const nearStart = dStart <= enterRadius;
+        const nearEnd = dEnd <= enterRadius;
+        const atFinal = (
+          tripDirectionRef.current === 'forward' ? nearEnd :
+          tripDirectionRef.current === 'reverse' ? nearStart :
+          /* dir unknown on refresh */ nearEnd
+        );
+        try { if (tripDirectionRef.current == null && (nearStart || nearEnd)) console.log('[Map] refresh reconciliation', { nearStart, nearEnd, atFinal }); } catch {}
+
+        if (atFinal && !arrivalConfirmedRef.current) {
+          try { console.log('[Map] ENTER terminal geofence (matched final)'); } catch {}
+          insideTerminalRef.current = true;
+          insideSinceRef.current = Date.now();
+          arrivalConfirmedRef.current = true;
+          (async () => {
+            try {
+              if (!busNumber) { console.warn('[Map] Flip aborted: missing busNumber'); arrivalConfirmedRef.current = false; return; }
+              console.log('[Map] Flipping in DB for bus', busNumber, 'at', new Date().toISOString());
+              const resp = await fetch(`${BACKEND_URL}/api/buses/flip/public`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ busNumber })
+              });
+              if (!resp.ok) {
+                const txt = await resp.text().catch(() => '');
+                console.error('[Map] DB FLIP FAILED', resp.status, txt);
+                arrivalConfirmedRef.current = false;
+                return;
+              }
+              console.log('[Map] DB FLIP SUCCESS');
+              lastFlipAtRef.current = Date.now();
+              
+              // Trigger bus data reload to get updated start/end from database (single source of truth)
+              if (typeof onRouteFlipped === 'function') {
+                try {
+                  onRouteFlipped();
+                } catch (e) {
+                  console.warn('[Map] onRouteFlipped callback error', e);
+                }
+              }
+              
+              // Local route flip AFTER DB success
+              tripDirectionRef.current = tripDirectionRef.current === 'forward' ? 'reverse' : 'forward';
+              const mpsOriented = getOrientedMidpoints();
+              orientedRef.current = mpsOriented;
+              progressIdxRef.current = 0;
+              const fStart = tripDirectionRef.current === 'reverse' ? endLocation : startLocation;
+              const fEnd = tripDirectionRef.current === 'reverse' ? startLocation : endLocation;
+              const ok = await buildRoute(fStart, fEnd, mpsOriented);
               if (ok) {
                 if (typeof onFinalDestinationChange === 'function') {
-                  const destName = tripDirectionRef.current === "reverse" ? (startLocation?.name || '') : (endLocation?.name || '');
+                  const destName = tripDirectionRef.current === 'reverse' ? (startLocation?.name || '') : (endLocation?.name || '');
                   onFinalDestinationChange(destName);
                 }
                 if (Array.isArray(orientedRef.current) && orientedRef.current.length && typeof onNextStop === 'function') {
                   onNextStop(orientedRef.current[0]?.name || '');
                 }
               }
-            });
-            routeStartedRef.current = false; // reset for the new leg
-          }
+              routeStartedRef.current = false; // reset for the new leg
+            } catch (e) {
+              console.error('[Map] Flip sequence error', e);
+              arrivalConfirmedRef.current = false;
+            }
+          })();
         }
       }
     } catch {}
