@@ -18,6 +18,7 @@ const Display = ({ busNumber, depot }) => {
   const [endLocation, setEndLocation] = useState(null); // { lat, lng, name }
   const [nextStop, setNextStop] = useState("");
   const [finalDestination, setFinalDestination] = useState("");
+  const [routeKey, setRouteKey] = useState(0); // Force route rebuild when locations change
 
   // Media / ticker
   const [ticker, setTicker] = useState(""); // no default text shown unless API pushes one
@@ -505,16 +506,26 @@ useEffect(() => {
       const eLat = Number(bus.end_latitude);
       const eLng = Number(bus.end_longitude);
 
-      setStartLocation(
-        isValidCoord(sLat, sLng)
-          ? { lat: sLat, lng: sLng, name: bus.start_point || "" }
-          : null
-      );
-      setEndLocation(
-        isValidCoord(eLat, eLng)
-          ? { lat: eLat, lng: eLng, name: bus.end_point || "" }
-          : null
-      );
+      const newStartLocation = isValidCoord(sLat, sLng)
+        ? { lat: sLat, lng: sLng, name: bus.start_point || "" }
+        : null;
+      const newEndLocation = isValidCoord(eLat, eLng)
+        ? { lat: eLat, lng: eLng, name: bus.end_point || "" }
+        : null;
+      
+      setStartLocation(newStartLocation);
+      setEndLocation(newEndLocation);
+      
+      // Force route rebuild by incrementing routeKey when locations change
+      // This ensures the route updates immediately without page reload
+      if (newStartLocation && newEndLocation) {
+        setRouteKey(prev => prev + 1);
+        console.log('[Display] Locations updated, routeKey incremented to force rebuild', {
+          start: newStartLocation.name,
+          end: newEndLocation.name,
+          routeKey: routeKey + 1
+        });
+      }
 
       const gLat = Number(bus.gps_latitude);
       const gLng = Number(bus.gps_longitude);
@@ -1060,12 +1071,21 @@ useEffect(() => {
                 currentLocation={effectiveCurrentLocation}
                 stops={[]} // no default stops injected
                 busNumber={selectedBusNumber}
+                routeKey={routeKey} // Pass routeKey as prop to trigger rebuild
                 onNextStop={(name) => setNextStop(name || '')}
                 onFinalDestinationChange={(name) => setFinalDestination(name || '')}
-                onRouteFlipped={() => {
+                onRouteFlipped={async () => {
                   // Reload bus data after route flip to get updated start/end from database
                   console.log('[Display] Route flipped, reloading bus data from database');
-                  loadBusData();
+                  try {
+                    await loadBusData();
+                    // Note: loadBusData will update startLocation/endLocation and increment routeKey
+                    // The routeKey prop change will trigger route rebuild in MapboxMap
+                    console.log('[Display] Bus data reloaded after flip - route will rebuild');
+                  } catch (error) {
+                    console.error('[Display] Error reloading bus data after flip', error);
+                    throw error; // Re-throw so MapboxMap knows if reload failed
+                  }
                 }}
                 follow
               />

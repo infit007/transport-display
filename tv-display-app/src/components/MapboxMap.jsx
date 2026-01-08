@@ -65,7 +65,7 @@ const haversineMeters = (lat1, lon1, lat2, lon2) => {
 };
 
 /* -------------------- component -------------------- */
-const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true, busNumber, onNextStop, onFinalDestinationChange, onRouteFlipped }) => {
+const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true, busNumber, onNextStop, onFinalDestinationChange, onRouteFlipped, routeKey = 0 }) => {
   const mapRef = useRef(null);
   const mapContainerRef = useRef(null);
   const suppressFollowUntilRef = useRef(0);
@@ -74,6 +74,7 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
   const routeLoadedRef = useRef(false);
   const lastRouteUpdateRef = useRef(0);
   const lastStartEndHashRef = useRef(null); // Track start/end location changes to detect flips
+  const lastRouteKeyRef = useRef(0); // Track routeKey prop changes to force rebuild
 
   const vehicleMarkerRef = useRef(null);
   const destinationMarkerRef = useRef(null);
@@ -298,18 +299,34 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
     const currentHash = `${startLocation.lat},${startLocation.lng},${endLocation.lat},${endLocation.lng}`;
     const hashChanged = lastStartEndHashRef.current !== null && lastStartEndHashRef.current !== currentHash;
     
-    // If route already loaded and locations haven't changed, skip
-    if (routeLoadedRef.current && !hashChanged) return;
+    // If route already loaded and locations haven't changed and routeKey hasn't changed, skip
+    // routeKey is incremented after flip to force immediate rebuild
+    if (routeLoadedRef.current && !hashChanged) {
+      // Check if routeKey changed (force rebuild trigger)
+      const lastRouteKey = lastRouteKeyRef.current || 0;
+      if (routeKey === lastRouteKey) {
+        return; // No changes, skip
+      }
+      console.log('[Map] routeKey changed, forcing route rebuild', { old: lastRouteKey, new: routeKey });
+      routeLoadedRef.current = false;
+      tripDirectionRef.current = null;
+    }
     
     // If hash changed (after flip), reset route state to force rebuild
     if (hashChanged) {
-      console.log('[Map] Start/end locations changed, rebuilding route');
+      console.log('[Map] Start/end locations changed, rebuilding route', {
+        oldHash: lastStartEndHashRef.current,
+        newHash: currentHash,
+        start: startLocation.name,
+        end: endLocation.name
+      });
       routeLoadedRef.current = false;
       // Reset trip direction to null so it gets recalculated based on new terminal positions
       tripDirectionRef.current = null;
     }
     
     lastStartEndHashRef.current = currentHash;
+    lastRouteKeyRef.current = routeKey;
 
     const loadRoute = async () => {
       try {
@@ -498,7 +515,7 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
     };
 
     loadRoute();
-  }, [mapReady, startLocation, endLocation]);
+  }, [mapReady, startLocation, endLocation, routeKey]);
 
   /* -------------------- reroute ALWAYS from current -------------------- */
   const rerouteFromCurrent = async (cur, dest) => {
@@ -668,59 +685,175 @@ const MapboxMap = ({ currentLocation, startLocation, endLocation, follow = true,
           tripDirectionRef.current === 'reverse' ? nearStart :
           /* dir unknown on refresh */ nearEnd
         );
-        try { if (tripDirectionRef.current == null && (nearStart || nearEnd)) console.log('[Map] refresh reconciliation', { nearStart, nearEnd, atFinal }); } catch {}
+        
+        // Enhanced logging for terminal detection
+        if (nearStart || nearEnd) {
+          console.log('[Map] Terminal proximity check', {
+            tripDirection: tripDirectionRef.current,
+            dStart: Math.round(dStart),
+            dEnd: Math.round(dEnd),
+            nearStart,
+            nearEnd,
+            atFinal,
+            arrivalConfirmed: arrivalConfirmedRef.current,
+            flipInFlight: flipInFlightRef.current
+          });
+        }
 
         if (atFinal && !arrivalConfirmedRef.current) {
           try { console.log('[Map] ENTER terminal geofence (matched final)'); } catch {}
           insideTerminalRef.current = true;
-          insideSinceRef.current = Date.now();
+          const now = Date.now();
+          if (insideSinceRef.current === 0) {
+            insideSinceRef.current = now;
+          }
+          
+          // Require minimum dwell time at terminal before flipping (2 seconds)
+          // This prevents flips when bus is just passing through the terminal
+          const dwellTime = now - insideSinceRef.current;
+          const minDwellTime = 2000; // 2 seconds
+          
+          if (dwellTime < minDwellTime) {
+            // Not enough time at terminal yet, wait
+            return;
+          }
+          
           arrivalConfirmedRef.current = true;
+          
+          // Prevent duplicate flip attempts: check if flip is already in progress or too recent
+          const minFlipInterval = 5000; // 5 seconds cooldown between flips
+          const timeSinceLastFlip = now - lastFlipAtRef.current;
+          
+          if (flipInFlightRef.current) {
+            try { console.log('[Map] Flip already in progress, skipping duplicate'); } catch {}
+            return;
+          }
+          
+          if (timeSinceLastFlip < minFlipInterval) {
+            try { console.log('[Map] Flip cooldown active, skipping (last flip was', timeSinceLastFlip, 'ms ago)'); } catch {}
+            return;
+          }
+          
+          // Mark flip as in progress
+          flipInFlightRef.current = true;
+          
+          console.log('[Map] Initiating route flip after', dwellTime, 'ms at terminal');
+          
           (async () => {
             try {
-              if (!busNumber) { console.warn('[Map] Flip aborted: missing busNumber'); arrivalConfirmedRef.current = false; return; }
+              if (!busNumber) { 
+                console.warn('[Map] Flip aborted: missing busNumber'); 
+                arrivalConfirmedRef.current = false;
+                flipInFlightRef.current = false;
+                return; 
+              }
+              
               console.log('[Map] Flipping in DB for bus', busNumber, 'at', new Date().toISOString());
-              const resp = await fetch(`${BACKEND_URL}/api/buses/flip/public`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ busNumber })
-              });
+              
+              // Add timeout to prevent hanging requests
+              const controller = new AbortController();
+              const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+              
+              let resp;
+              try {
+                resp = await fetch(`${BACKEND_URL}/api/buses/flip/public`, {
+                  method: 'POST', 
+                  headers: { 'Content-Type': 'application/json' }, 
+                  body: JSON.stringify({ busNumber }),
+                  signal: controller.signal
+                });
+              } catch (fetchError) {
+                clearTimeout(timeoutId);
+                if (fetchError.name === 'AbortError') {
+                  console.error('[Map] DB FLIP TIMEOUT after 10s');
+                } else {
+                  console.error('[Map] DB FLIP NETWORK ERROR', fetchError);
+                }
+                arrivalConfirmedRef.current = false;
+                flipInFlightRef.current = false;
+                return;
+              }
+              clearTimeout(timeoutId);
+              
               if (!resp.ok) {
                 const txt = await resp.text().catch(() => '');
                 console.error('[Map] DB FLIP FAILED', resp.status, txt);
                 arrivalConfirmedRef.current = false;
+                flipInFlightRef.current = false;
                 return;
               }
-              console.log('[Map] DB FLIP SUCCESS');
+              
+              // Parse response to verify success
+              let result;
+              try {
+                result = await resp.json();
+              } catch (parseError) {
+                console.warn('[Map] Could not parse flip response, assuming success');
+                result = { ok: true };
+              }
+              
+              if (!result.ok) {
+                console.error('[Map] DB FLIP returned error', result);
+                arrivalConfirmedRef.current = false;
+                flipInFlightRef.current = false;
+                return;
+              }
+              
+              console.log('[Map] DB FLIP SUCCESS', result);
               lastFlipAtRef.current = Date.now();
               
+              // Verify the flip actually happened by checking the database
+              try {
+                const verifyResp = await fetch(`${BACKEND_URL}/api/buses/public/${encodeURIComponent(busNumber)}?_cb=${Date.now()}`, {
+                  signal: controller.signal
+                });
+                if (verifyResp.ok) {
+                  const verifyData = await verifyResp.json();
+                  console.log('[Map] Post-flip verification:', {
+                    start_point: verifyData.start_point,
+                    end_point: verifyData.end_point,
+                    start_lat: verifyData.start_latitude,
+                    end_lat: verifyData.end_latitude
+                  });
+                }
+              } catch (verifyError) {
+                console.warn('[Map] Could not verify flip in database', verifyError);
+              }
+              
               // Trigger bus data reload to get updated start/end from database (single source of truth)
+              // After DB flip, start/end are swapped, so we need to recalculate direction based on new positions
               if (typeof onRouteFlipped === 'function') {
                 try {
-                  onRouteFlipped();
+                  console.log('[Map] Triggering bus data reload...');
+                  await onRouteFlipped();
+                  console.log('[Map] Bus data reload completed - routeKey incremented, route will rebuild automatically');
+                  // Note: loadBusData() updates startLocation/endLocation and increments routeKey
+                  // The routeKey prop change will trigger the useEffect to rebuild the route immediately
                 } catch (e) {
                   console.warn('[Map] onRouteFlipped callback error', e);
                 }
               }
               
-              // Local route flip AFTER DB success
-              tripDirectionRef.current = tripDirectionRef.current === 'forward' ? 'reverse' : 'forward';
-              const mpsOriented = getOrientedMidpoints();
-              orientedRef.current = mpsOriented;
-              progressIdxRef.current = 0;
-              const fStart = tripDirectionRef.current === 'reverse' ? endLocation : startLocation;
-              const fEnd = tripDirectionRef.current === 'reverse' ? startLocation : endLocation;
-              const ok = await buildRoute(fStart, fEnd, mpsOriented);
-              if (ok) {
-                if (typeof onFinalDestinationChange === 'function') {
-                  const destName = tripDirectionRef.current === 'reverse' ? (startLocation?.name || '') : (endLocation?.name || '');
-                  onFinalDestinationChange(destName);
-                }
-                if (Array.isArray(orientedRef.current) && orientedRef.current.length && typeof onNextStop === 'function') {
-                  onNextStop(orientedRef.current[0]?.name || '');
-                }
-              }
+              // Reset direction to null so it gets recalculated based on new terminal positions after flip
+              // After DB flip: what was end is now start, what was start is now end
+              // We're at the terminal we just reached, which is now the new start
+              // So direction should be "forward" (new start -> new end)
+              tripDirectionRef.current = null;
+              console.log('[Map] Direction reset to null - will be recalculated based on new terminal positions');
+              
+              // Note: We don't need to manually reset routeLoadedRef here because:
+              // 1. The routeKey prop change will trigger the useEffect
+              // 2. The hash change detection will also trigger rebuild
+              // The useEffect will handle the rebuild automatically when locations update
+              
               routeStartedRef.current = false; // reset for the new leg
+              
+              // Mark flip as complete
+              flipInFlightRef.current = false;
             } catch (e) {
               console.error('[Map] Flip sequence error', e);
               arrivalConfirmedRef.current = false;
+              flipInFlightRef.current = false;
             }
           })();
         }
